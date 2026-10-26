@@ -70,6 +70,7 @@ func TestOperationWatcher_Batch(t *testing.T) {
 		w.handle(ctx, progress("b", n, "failed", "boom"))
 	}
 	w.handle(ctx, progress("b", "", "failed", "boom"))
+	w.handle(ctx, progress("b", "", "complete", "batch done"))
 	if k := c.kinds(); k[EventUpdateSucceeded] != 3 || k[EventUpdateFailed] != 2 || len(c.ev) != 5 {
 		t.Fatalf("got %v", k)
 	}
@@ -118,6 +119,7 @@ func TestOperationWatcher_StartViaBus(t *testing.T) {
 	w.Start(ctx)
 	bus.Publish(progress("x", "web", "pulling", ""))
 	bus.Publish(progress("x", "web", "complete", ""))
+	bus.Publish(progress("x", "web", "complete", ""))
 	select {
 	case e := <-done:
 		if e.Kind != EventUpdateSucceeded {
@@ -125,5 +127,21 @@ func TestOperationWatcher_StartViaBus(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout")
+	}
+	select {
+	case e := <-done:
+		t.Fatalf("unexpected extra event %+v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestOperationWatcher_NoContainersOp(t *testing.T) {
+	c := &collector{}
+	w := NewOperationWatcher(nil, fakeOps{map[string]storage.UpdateOperation{
+		"n": {OperationID: "n", OperationType: "batch"},
+	}}, c.emit)
+	w.handle(context.Background(), progress("n", "", "complete", "No containers to update"))
+	if len(c.ev) != 0 {
+		t.Fatalf("got %+v", c.ev)
 	}
 }

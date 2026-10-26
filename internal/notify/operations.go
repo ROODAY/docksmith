@@ -79,10 +79,13 @@ func (w *OperationWatcher) handle(ctx context.Context, e events.Event) {
 	name, stack := container, str("stack_name")
 	from, to := op.OldVersion, op.NewVersion
 	if name == "" {
-		if stage == "failed" && len(op.BatchDetails) > 0 {
-			return // per-container failures are published individually
+		if len(op.BatchDetails) > 0 {
+			return // per-container events are published individually
 		}
 		name = op.ContainerName
+		if name == "" {
+			return
+		}
 	}
 	if stack == "" {
 		stack = op.StackName
