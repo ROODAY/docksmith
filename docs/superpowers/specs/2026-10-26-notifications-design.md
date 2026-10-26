@@ -24,7 +24,7 @@ The user runs most containers on `:latest` today and is moving them to pinned se
 
 - Notifications do not change what the UI shows. The UI shows what the checker sees; notification settings only decide what gets sent. (Exception: the new "build" change level below is a classification fix and the UI will display it.)
 - No reminders/nagging for updates already notified about.
-- No auto-updating. Notifications inform; they don't act.
+- No auto-updating, and no "apply update" action inside the notification itself (a link click must never change anything — Docksmith has no auth, and mail scanners pre-fetch links). Notifications instead carry buttons/links that open the Docksmith page where the user can review and apply the update (see Message content).
 - No multi-host aggregation. Each Docksmith instance notifies for its own host.
 - No per-event-type schedules.
 
@@ -55,7 +55,7 @@ The user runs most containers on `:latest` today and is moving them to pinned se
 
 ### Version change classification
 
-- Add a **build** change level below patch for packaging-only changes: a change only in `Version.BuildNumber`, which today is populated only from LinuxServer `-lsNNN`. *(Builder-check call: `-rN` suffixes are currently stripped by `normalizeSuffix` and never compared, so `-r4` → `-r5` shows as no change. That behavior is kept; making `-rN` visible would change what the checker reports and is out of scope.)*
+- Add a **build** change level below patch for packaging-only changes: a change only in `Version.BuildNumber`, which today is populated only from LinuxServer `-lsNNN`. _(Builder-check call: `-rN` suffixes are currently stripped by `normalizeSuffix` and never compared, so `-r4` → `-r5` shows as no change. That behavior is kept; making `-rN` visible would change what the checker reports and is out of scope.)_
 - The 4th numeric segment (`Version.Revision`, e.g. Plex `1.42.2.10156`) remains **patch** — it's a real upstream release for the images that use it.
 - Ordering: build < patch < minor < major. Digest-only changes (no version change) are a separate, opt-in category, not a level.
 - `internal/version.ChangeType` is serialized as an int to the UI (`change_type`). Add the new value without renumbering existing ones (append after `UnknownChange`) and update the UI's `ChangeType` enum and badges (show a "BUILD" badge).
@@ -68,9 +68,10 @@ A container's `latest_version` as computed by the existing checker (labels alrea
 The user's end state is: no containers on `:latest`; everything pinned to real version tags; notified when a version they care about appears. `:latest` handling below is for the transition period.
 
 Floating tags (`:latest`, `:16`, etc.), where the checker reports `LatestVersion` as the tag itself (`internal/update/checker.go` ~616-690):
+
 - **Digest change with a resolved version** (`LatestResolvedVersion` set, and current version resolved): treat as a "new version" event. Compute the change level from resolved current → resolved latest, filter by the notify level, and dedup on the resolved version.
 - **Digest change with no resolved version:** only the "digest changed" event (off by default; opt-in globally or via `docksmith.notify-digest=true`). Dedup on digest.
-- **`UnknownChange`** (versions present but not comparable, e.g. composite tags like `14-vectorchord0.4.3-pgvectors0.2.0`): never raises a "new version" event; falls through to the digest rule above. *(Claude's call; user did not object.)*
+- **`UnknownChange`** (versions present but not comparable, e.g. composite tags like `14-vectorchord0.4.3-pgvectors0.2.0`): never raises a "new version" event; falls through to the digest rule above. _(Claude's call; user did not object.)_
 - **`Downgrade`:** never notifies.
 
 ### Notify level: global setting + optional per-container label
@@ -86,16 +87,16 @@ Floating tags (`:latest`, `:16`, etc.), where the checker reports `LatestVersion
 
 ### Event types
 
-| Event | Default timing | Notes |
-|---|---|---|
-| New version available | summary | see above |
-| Digest changed (opt-in) | summary | only if enabled globally or by label |
-| Update succeeded | summary | per container (from batch detail status), not per operation |
-| Update failed | immediate | per container: a batch is only marked `failed` when every container fails (`update_orchestrator.go` ~1237), so a 3-ok/2-failed batch must still raise 2 failure events |
-| Rollback performed | immediate | auto-rollback or manual rollback completed; a failed update immediately followed by its auto-rollback is sent as one combined message |
-| Update blocked by pre-update check | immediate | see dedup note below |
-| Version check failing | immediate | a container's check has been `CHECK_FAILED`/`METADATA_UNAVAILABLE` for N consecutive checks (builder's call on N; ~3), notify once until it recovers |
-| Compose mismatch | summary | container entered `COMPOSE_MISMATCH`; notify once per entry into that state |
+| Event                              | Default timing | Notes                                                                                                                                                                  |
+| ---------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New version available              | summary        | see above                                                                                                                                                              |
+| Digest changed (opt-in)            | summary        | only if enabled globally or by label                                                                                                                                   |
+| Update succeeded                   | summary        | per container (from batch detail status), not per operation                                                                                                            |
+| Update failed                      | immediate      | per container: a batch is only marked `failed` when every container fails (`update_orchestrator.go` ~1237), so a 3-ok/2-failed batch must still raise 2 failure events |
+| Rollback performed                 | immediate      | auto-rollback or manual rollback completed; a failed update immediately followed by its auto-rollback is sent as one combined message                                  |
+| Update blocked by pre-update check | immediate      | see dedup note below                                                                                                                                                   |
+| Version check failing              | immediate      | a container's check has been `CHECK_FAILED`/`METADATA_UNAVAILABLE` for N consecutive checks (builder's call on N; ~3), notify once until it recovers                   |
+| Compose mismatch                   | summary        | container entered `COMPOSE_MISMATCH`; notify once per entry into that state                                                                                            |
 
 Each event type has a global **timing** setting: "immediate" or "summary". The defaults are as in the table; the user can change any of them.
 
@@ -130,7 +131,10 @@ Note: pre-update checks run during every background check (`internal/update/chec
 ### Message content
 
 - **Server name** global setting, default = host's hostname (Docker host name via the Docker API's info, falling back to container hostname). Included in every message subject/title.
-- **Base URL** global setting (e.g. `https://docksmith.engager.ts.rooday.com`); when set, messages link to the relevant container page; when unset, no links.
+- **Base URL** global setting (e.g. `https://docksmith.engager.ts.rooday.com`). When set, messages include action buttons (HTML buttons in email; links in chat services); when unset, no buttons/links.
+  - Per item: **Open in Docksmith** → `/container/{name}` (the container page, which already has the update/pin/rollback actions).
+  - Per message: **Review all updates** → `/` (the containers list, which shows pending updates) on new-version messages; **View history** → `/history` on failed/rollback messages.
+  - Buttons are plain navigation links (GET). They never trigger an update by themselves.
 - Grouping: new-version events found by one check are sent as a single message (immediate mode) listing all of them. Summaries list all pending items grouped by event type.
 - Email: HTML body (table: container, current → new, change level, link) with plain-text alternative. Subject e.g. `[engager] 3 container updates available`.
 - Chat-style services: compact plain text/markdown as the service supports.
