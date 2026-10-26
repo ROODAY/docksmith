@@ -6,6 +6,7 @@ import (
 
 	"github.com/chis/docksmith/internal/scripts"
 	"github.com/chis/docksmith/internal/storage"
+	"github.com/chis/docksmith/internal/version"
 )
 
 // Status strings mirror internal/update (kept local to avoid an import cycle).
@@ -48,17 +49,18 @@ func Detect(prev map[string]storage.NotifyContainerState, snaps []Snapshot, s Se
 		}
 		blockedStatus := sn.Status == statusUpdateAvailableBlocked
 
+		target := sn.LatestResolvedVersion
+		if target == "" {
+			target = sn.LatestVersion
+		}
+
 		if sn.Status == statusUpdateAvailable || blockedStatus {
-			target := sn.LatestResolvedVersion
-			if target == "" {
-				target = sn.LatestVersion
-			}
 			if lvl, ok := Classify(sn.CurrentVersion, target); ok {
 				if lvl >= effectiveMinLevel(sn.Labels, s) && target != st.LastNotifiedVersion {
 					emit(Event{Kind: EventNewVersion, FromVersion: sn.CurrentVersion, ToVersion: target, Level: lvl})
 					st.LastNotifiedVersion = target
 				}
-			} else if digestEnabled(sn.Labels, s) && sn.LatestDigest != "" &&
+			} else if comparisonUnknown(sn.CurrentVersion, target) && digestEnabled(sn.Labels, s) && sn.LatestDigest != "" &&
 				sn.LatestDigest != sn.CurrentDigest && sn.LatestDigest != st.LastNotifiedDigest {
 				emit(Event{Kind: EventDigestChanged, FromVersion: sn.CurrentVersion, ToVersion: target})
 				st.LastNotifiedDigest = sn.LatestDigest
@@ -66,7 +68,7 @@ func Detect(prev map[string]storage.NotifyContainerState, snaps []Snapshot, s Se
 		}
 
 		if blockedStatus && !st.Blocked {
-			emit(Event{Kind: EventUpdateBlocked, FromVersion: sn.CurrentVersion, ToVersion: sn.LatestVersion, Message: "Update blocked by pre-update check"})
+			emit(Event{Kind: EventUpdateBlocked, FromVersion: sn.CurrentVersion, ToVersion: target, Message: "Update blocked by pre-update check"})
 		}
 		st.Blocked = blockedStatus
 
@@ -89,6 +91,17 @@ func Detect(prev map[string]storage.NotifyContainerState, snaps []Snapshot, s Se
 		next[sn.Name] = st
 	}
 	return events, next
+}
+
+// comparisonUnknown reports whether current and target cannot be compared as versions
+// (empty or unparseable tags). Downgrades and equal versions are known comparisons.
+func comparisonUnknown(current, target string) bool {
+	p := version.NewParser()
+	from, to := p.ParseTag(current), p.ParseTag(target)
+	if from == nil || to == nil {
+		return true
+	}
+	return version.NewComparator().GetChangeType(from, to) == version.UnknownChange
 }
 
 func effectiveMinLevel(labels map[string]string, s Settings) Level {
