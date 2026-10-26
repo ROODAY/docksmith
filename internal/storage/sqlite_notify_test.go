@@ -164,3 +164,31 @@ func TestNotifyContainerStates_ReplaceDropsMissing(t *testing.T) {
 		t.Fatalf("b not dropped: %v", got)
 	}
 }
+
+func TestNotifyPending_SurvivesReopen(t *testing.T) {
+	s, dbPath := newNotifyTestStorage(t)
+	ctx := context.Background()
+	id, err := s.SaveNotifyService(ctx, NotifyServiceRow{Name: "a", Type: "x", Delivery: "digest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"k1", "k2"} {
+		if err := s.UpsertNotifyPending(ctx, NotifyPendingRow{ServiceID: id, DedupKey: k, Kind: "update", ContainerName: "c", Payload: `{"k":"` + k + `"}`}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+
+	s2, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	rows, err := s2.ListNotifyPending(ctx, id)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("rows=%v err=%v", rows, err)
+	}
+	if rows[0].DedupKey != "k1" || rows[1].Payload != `{"k":"k2"}` {
+		t.Fatalf("unexpected rows: %+v", rows)
+	}
+}

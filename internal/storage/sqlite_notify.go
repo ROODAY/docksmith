@@ -112,7 +112,7 @@ func (s *SQLiteStorage) SaveNotifyService(ctx context.Context, row NotifyService
 				VALUES (?, ?, ?, ?, ?, ?)`,
 				row.Name, row.Type, boolInt(row.Enabled), row.Delivery, string(eventsJSON), string(configJSON))
 			if err != nil {
-				return fmt.Errorf("failed to insert notify service: %w", err)
+				return err
 			}
 			id, err = res.LastInsertId()
 			return err
@@ -124,7 +124,7 @@ func (s *SQLiteStorage) SaveNotifyService(ctx context.Context, row NotifyService
 			WHERE id = ?`,
 			row.Name, row.Type, boolInt(row.Enabled), row.Delivery, string(eventsJSON), string(configJSON), row.ID)
 		if err != nil {
-			return fmt.Errorf("failed to update notify service: %w", err)
+			return err
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return fmt.Errorf("notify service %d not found", row.ID)
@@ -132,25 +132,27 @@ func (s *SQLiteStorage) SaveNotifyService(ctx context.Context, row NotifyService
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to save notify service: %w", err)
 	}
 	return id, nil
 }
 
 // DeleteNotifyService implements NotifyStore. Pending rows cascade.
 func (s *SQLiteStorage) DeleteNotifyService(ctx context.Context, id int64) error {
-	return s.retryWithBackoff(ctx, func() error {
-		if _, err := s.db.ExecContext(ctx, `DELETE FROM notify_services WHERE id = ?`, id); err != nil {
-			return fmt.Errorf("failed to delete notify service: %w", err)
-		}
-		return nil
+	err := s.retryWithBackoff(ctx, func() error {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM notify_services WHERE id = ?`, id)
+		return err
 	})
+	if err != nil {
+		return fmt.Errorf("failed to delete notify service: %w", err)
+	}
+	return nil
 }
 
 // RecordNotifySendResult implements NotifyStore. A nil sendErr records success
 // and clears the last error; otherwise the error and its time are recorded.
 func (s *SQLiteStorage) RecordNotifySendResult(ctx context.Context, id int64, sendErr error, at time.Time) error {
-	return s.retryWithBackoff(ctx, func() error {
+	err := s.retryWithBackoff(ctx, func() error {
 		var err error
 		if sendErr == nil {
 			_, err = s.db.ExecContext(ctx, `
@@ -161,22 +163,25 @@ func (s *SQLiteStorage) RecordNotifySendResult(ctx context.Context, id int64, se
 				UPDATE notify_services SET last_error = ?, last_error_at = ?
 				WHERE id = ?`, sendErr.Error(), at.UTC(), id)
 		}
-		if err != nil {
-			return fmt.Errorf("failed to record notify send result: %w", err)
-		}
-		return nil
+		return err
 	})
+	if err != nil {
+		return fmt.Errorf("failed to record notify send result: %w", err)
+	}
+	return nil
 }
 
 // SetNotifySummarySent implements NotifyStore.
 func (s *SQLiteStorage) SetNotifySummarySent(ctx context.Context, id int64, at time.Time) error {
-	return s.retryWithBackoff(ctx, func() error {
-		if _, err := s.db.ExecContext(ctx,
-			`UPDATE notify_services SET last_summary_at = ? WHERE id = ?`, at.UTC(), id); err != nil {
-			return fmt.Errorf("failed to set notify summary sent: %w", err)
-		}
-		return nil
+	err := s.retryWithBackoff(ctx, func() error {
+		_, err := s.db.ExecContext(ctx,
+			`UPDATE notify_services SET last_summary_at = ? WHERE id = ?`, at.UTC(), id)
+		return err
 	})
+	if err != nil {
+		return fmt.Errorf("failed to set notify summary sent: %w", err)
+	}
+	return nil
 }
 
 // LoadNotifyContainerStates implements NotifyStore.
@@ -206,15 +211,15 @@ func (s *SQLiteStorage) LoadNotifyContainerStates(ctx context.Context) (map[stri
 // ReplaceNotifyContainerStates implements NotifyStore. Runs in one transaction;
 // rows not present in states are deleted. Map keys are the container names.
 func (s *SQLiteStorage) ReplaceNotifyContainerStates(ctx context.Context, states map[string]NotifyContainerState) error {
-	return s.retryWithBackoff(ctx, func() error {
+	err := s.retryWithBackoff(ctx, func() error {
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
-			return fmt.Errorf("failed to begin transaction: %w", err)
+			return err
 		}
 		defer tx.Rollback()
 
 		if _, err := tx.ExecContext(ctx, `DELETE FROM notify_container_state`); err != nil {
-			return fmt.Errorf("failed to clear notify container states: %w", err)
+			return err
 		}
 		stmt, err := tx.PrepareContext(ctx, `
 			INSERT INTO notify_container_state
@@ -222,21 +227,22 @@ func (s *SQLiteStorage) ReplaceNotifyContainerStates(ctx context.Context, states
 			 check_fail_count, check_fail_notified, compose_mismatch)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
-			return fmt.Errorf("failed to prepare insert: %w", err)
+			return err
 		}
 		defer stmt.Close()
 		for name, st := range states {
 			if _, err := stmt.ExecContext(ctx, name, st.LastNotifiedVersion, st.LastNotifiedDigest,
 				boolInt(st.Blocked), st.CheckFailCount, boolInt(st.CheckFailNotified),
 				boolInt(st.ComposeMismatch)); err != nil {
-				return fmt.Errorf("failed to insert notify container state for %s: %w", name, err)
+				return err
 			}
 		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("failed to commit notify container states: %w", err)
-		}
-		return nil
+		return tx.Commit()
 	})
+	if err != nil {
+		return fmt.Errorf("failed to replace notify container states: %w", err)
+	}
+	return nil
 }
 
 // UpsertNotifyPending implements NotifyStore.
@@ -245,7 +251,7 @@ func (s *SQLiteStorage) UpsertNotifyPending(ctx context.Context, row NotifyPendi
 	if created.IsZero() {
 		created = time.Now()
 	}
-	return s.retryWithBackoff(ctx, func() error {
+	err := s.retryWithBackoff(ctx, func() error {
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO notify_pending (service_id, dedup_key, kind, container_name, payload, created_at)
 			VALUES (?, ?, ?, ?, ?, ?)
@@ -254,11 +260,12 @@ func (s *SQLiteStorage) UpsertNotifyPending(ctx context.Context, row NotifyPendi
 				kind = excluded.kind,
 				created_at = excluded.created_at`,
 			row.ServiceID, row.DedupKey, row.Kind, row.ContainerName, row.Payload, created.UTC())
-		if err != nil {
-			return fmt.Errorf("failed to upsert notify pending: %w", err)
-		}
-		return nil
+		return err
 	})
+	if err != nil {
+		return fmt.Errorf("failed to upsert notify pending: %w", err)
+	}
+	return nil
 }
 
 // ListNotifyPending implements NotifyStore.
@@ -292,22 +299,26 @@ func (s *SQLiteStorage) DeleteNotifyPending(ctx context.Context, ids []int64) er
 	for i, id := range ids {
 		args[i] = id
 	}
-	return s.retryWithBackoff(ctx, func() error {
-		if _, err := s.db.ExecContext(ctx,
-			`DELETE FROM notify_pending WHERE id IN (`+placeholders+`)`, args...); err != nil {
-			return fmt.Errorf("failed to delete notify pending: %w", err)
-		}
-		return nil
+	err := s.retryWithBackoff(ctx, func() error {
+		_, err := s.db.ExecContext(ctx,
+			`DELETE FROM notify_pending WHERE id IN (`+placeholders+`)`, args...)
+		return err
 	})
+	if err != nil {
+		return fmt.Errorf("failed to delete notify pending: %w", err)
+	}
+	return nil
 }
 
 // DeleteNotifyPendingForContainer implements NotifyStore.
 func (s *SQLiteStorage) DeleteNotifyPendingForContainer(ctx context.Context, containerName string) error {
-	return s.retryWithBackoff(ctx, func() error {
-		if _, err := s.db.ExecContext(ctx,
-			`DELETE FROM notify_pending WHERE container_name = ?`, containerName); err != nil {
-			return fmt.Errorf("failed to delete notify pending for container: %w", err)
-		}
-		return nil
+	err := s.retryWithBackoff(ctx, func() error {
+		_, err := s.db.ExecContext(ctx,
+			`DELETE FROM notify_pending WHERE container_name = ?`, containerName)
+		return err
 	})
+	if err != nil {
+		return fmt.Errorf("failed to delete notify pending for container: %w", err)
+	}
+	return nil
 }
