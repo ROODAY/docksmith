@@ -113,14 +113,14 @@ func BuildURL(serviceType string, cfg map[string]string) (string, error) {
 			host = "ntfy.sh"
 		}
 		u := url.URL{Scheme: "ntfy", Host: host, Path: "/" + strings.TrimPrefix(cfg["topic"], "/")}
-		if cfg["username"] != "" || cfg["password"] != "" {
+		switch {
+		case cfg["username"] != "" || cfg["password"] != "":
 			u.User = url.UserPassword(cfg["username"], cfg["password"])
+		case cfg["token"] != "":
+			// shoutrrr has no token option; ntfy accepts an access token as
+			// the Basic-auth password with an empty username.
+			u.User = url.UserPassword("", cfg["token"])
 		}
-		q := url.Values{}
-		if cfg["token"] != "" {
-			q.Set("token", cfg["token"])
-		}
-		u.RawQuery = q.Encode()
 		return u.String(), nil
 	case "discord":
 		id, token, err := webhookParts(cfg["webhook_url"], "webhooks")

@@ -44,17 +44,21 @@ func (ShoutrrrSender) Send(ctx context.Context, serviceType string, cfg map[stri
 	if msg.Title != "" {
 		params["title"] = msg.Title
 	}
-	errs := router.SendContext(ctx, body, &params)
-	for _, e := range errs {
-		if e == nil {
-			continue
+	// This shoutrrr version has no context-aware send, so run it in a
+	// goroutine and abandon it (its own timeouts bound it) when ctx ends.
+	done := make(chan []error, 1)
+	go func() { done <- router.Send(body, &params) }()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("send aborted: %w", ctx.Err())
+	case errs := <-done:
+		for _, e := range errs {
+			if e != nil {
+				return redactError(e, serviceType, cfg, svcURL)
+			}
 		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("send aborted: %w", ctxErr)
-		}
-		return redactError(e, serviceType, cfg, svcURL)
+		return nil
 	}
-	return nil
 }
 
 // redactError returns a plain error (not wrapping the original, so nothing can
