@@ -65,7 +65,8 @@ func LoadSettings(ctx context.Context, cfg ConfigStore, hostname string) (Settin
 	if !ok {
 		return s, nil
 	}
-	var stored Settings
+	stored := s
+	stored.Timing = nil
 	if err := json.Unmarshal([]byte(raw), &stored); err != nil {
 		return Settings{}, fmt.Errorf("parse notify settings: %w", err)
 	}

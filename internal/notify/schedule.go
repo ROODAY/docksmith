@@ -3,13 +3,23 @@ package notify
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
 )
 
 // ParseSchedule parses a standard 5-field cron expression.
+// Descriptors (@daily, @every) and CRON_TZ=/TZ= prefixes are rejected; the
+// schedule always runs in the local timezone.
 func ParseSchedule(expr string) (cron.Schedule, error) {
+	expr = strings.TrimSpace(expr)
+	if strings.HasPrefix(expr, "@") || strings.HasPrefix(expr, "CRON_TZ=") || strings.HasPrefix(expr, "TZ=") {
+		return nil, fmt.Errorf("only plain 5-field cron expressions are supported: %q", expr)
+	}
+	if len(strings.Fields(expr)) != 5 {
+		return nil, fmt.Errorf("expected 5 fields in cron expression: %q", expr)
+	}
 	return cron.ParseStandard(expr)
 }
 
@@ -19,6 +29,9 @@ func ValidateSchedule(expr string, minGap time.Duration, loc *time.Location, now
 	sched, err := ParseSchedule(expr)
 	if err != nil {
 		return fmt.Errorf("invalid schedule: %w", err)
+	}
+	if loc == nil {
+		loc = time.Local
 	}
 	now = now.In(loc)
 	end := now.AddDate(0, 0, 366)
@@ -44,6 +57,9 @@ func NextFires(expr string, loc *time.Location, now time.Time, n int) ([]time.Ti
 	sched, err := ParseSchedule(expr)
 	if err != nil {
 		return nil, err
+	}
+	if loc == nil {
+		loc = time.Local
 	}
 	out := make([]time.Time, 0, n)
 	t := now.In(loc)

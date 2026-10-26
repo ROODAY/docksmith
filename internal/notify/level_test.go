@@ -26,16 +26,11 @@ func TestClassify(t *testing.T) {
 
 // For this tag pair the parser/comparator yields no usable classification
 // (Classify returns ok=false), so notifications fall back to digest-only handling.
-const (
-	complexTagOK    = false
-	complexTagLevel = Level(0)
-)
-
 func TestClassify_ComplexTag(t *testing.T) {
 	got, ok := Classify("14-vectorchord0.4.3-pgvectors0.2.0", "14-vectorchord0.4.4-pgvectors0.2.0")
 	t.Logf("complex tag classify: (%v,%v)", got, ok)
-	if ok != complexTagOK || got != complexTagLevel {
-		t.Errorf("got (%v,%v), want (%v,%v)", got, ok, complexTagLevel, complexTagOK)
+	if ok || got != 0 {
+		t.Errorf("got (%v,%v), want (%v,%v)", got, ok, Level(0), false)
 	}
 }
 

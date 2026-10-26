@@ -49,3 +49,14 @@ func TestSettings_RoundTripFillsMissingTiming(t *testing.T) {
 		t.Errorf("bad merge: %+v", got)
 	}
 }
+
+func TestLoadSettings_PartialBlobUsesDefaults(t *testing.T) {
+	cfg := memCfg{"notify_settings": `{"base_url":"http://x"}`}
+	got, err := LoadSettings(context.Background(), cfg, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BaseURL != "http://x" || got.MinLevel != "patch" || got.SummaryCron != "0 8 * * *" || got.ServerName != "h" || got.Timing[EventRollback] != TimingImmediate {
+		t.Errorf("bad: %+v", got)
+	}
+}
