@@ -413,6 +413,13 @@ func validateNotifyLevel(level string) error {
 // applyLabelChanges applies the requested label changes to a compose service
 // and returns the labels that were modified.
 func applyLabelChanges(service *compose.Service, req *SetLabelsRequest) (map[string]string, error) {
+	// Validate before mutating any label
+	if req.NotifyLevel != nil {
+		if err := validateNotifyLevel(*req.NotifyLevel); err != nil {
+			return nil, err
+		}
+	}
+
 	modified := make(map[string]string)
 
 	// Apply boolean label updates
@@ -459,12 +466,6 @@ func applyLabelChanges(service *compose.Service, req *SetLabelsRequest) (map[str
 	if req.TagRegex != nil && *req.TagRegex != "" {
 		if err := validateRegexPattern(*req.TagRegex); err != nil {
 			return nil, fmt.Errorf("invalid tag regex: %w", err)
-		}
-	}
-
-	if req.NotifyLevel != nil {
-		if err := validateNotifyLevel(*req.NotifyLevel); err != nil {
-			return nil, err
 		}
 	}
 

@@ -97,12 +97,31 @@ func TestSetLabels_NotifyLevelValidation(t *testing.T) {
 		}
 		level := "minor"
 		off := false
-		modified, err := applyLabelChanges(service, &SetLabelsRequest{NotifyLevel: &level, Notify: &off})
+		modified, err := applyLabelChanges(service, &SetLabelsRequest{NotifyLevel: &level, Notify: &off, NotifyDigest: &off})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got := modified[scripts.NotifyLevelLabel]; got != "minor" {
 			t.Errorf("expected notify-level=minor in modified labels, got %q", got)
+		}
+		if got := modified[scripts.NotifyLabel]; got != "false" {
+			t.Errorf("expected notify=false in modified labels, got %q", got)
+		}
+		if got := modified[scripts.NotifyDigestLabel]; got != "false" {
+			t.Errorf("expected notify-digest=false in modified labels, got %q", got)
+		}
+		labels, err := service.GetAllLabels()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for key, want := range map[string]string{
+			scripts.NotifyLabel:       "false",
+			scripts.NotifyDigestLabel: "false",
+			scripts.NotifyLevelLabel:  "minor",
+		} {
+			if labels[key] != want {
+				t.Errorf("service label %s = %q, want %q", key, labels[key], want)
+			}
 		}
 	})
 }
