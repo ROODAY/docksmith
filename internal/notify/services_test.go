@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -117,5 +118,47 @@ func TestRedactError_StripsSecretsAndURL(t *testing.T) {
 		for _, k := range SecretFields(typ) {
 			assert.NotContains(t, got, cfg[k], typ+"/"+k)
 		}
+	}
+}
+
+func mustURL(t *testing.T, typ string, cfg map[string]string) *url.URL {
+	t.Helper()
+	s, err := BuildURL(typ, cfg)
+	require.NoError(t, err)
+	u, err := url.Parse(s)
+	require.NoError(t, err)
+	return u
+}
+
+func TestBuildURL_FieldMapping(t *testing.T) {
+	po := mustURL(t, "pushover", sampleConfigs["pushover"])
+	pw, _ := po.User.Password()
+	assert.Equal(t, sampleConfigs["pushover"]["user_key"], po.Host)
+	assert.Equal(t, sampleConfigs["pushover"]["token"], pw)
+
+	dc := mustURL(t, "discord", sampleConfigs["discord"])
+	assert.Equal(t, "123456789", dc.Host)
+	assert.Equal(t, "AbCdEf-gh_ij", dc.User.Username())
+
+	tg := mustURL(t, "telegram", sampleConfigs["telegram"])
+	tpw, _ := tg.User.Password()
+	assert.Equal(t, "123456", tg.User.Username())
+	assert.Equal(t, "ABC-DEF1234ghIkl", tpw)
+	assert.Equal(t, "@chan1,12345", tg.Query().Get("chats"))
+
+	gf := mustURL(t, "gotify", sampleConfigs["gotify"])
+	assert.Equal(t, "gotify.example.com:8080", gf.Host)
+	assert.Equal(t, "/AbCdEfGhIjKlMnO", gf.Path)
+}
+
+func TestBuildURL_DiscordRejectsUnsafeParts(t *testing.T) {
+	for _, w := range []string{
+		"https://discord.com/api/webhooks/12@3/token",
+		"https://discord.com/api/webhooks/abc/token",
+		"https://discord.com/api/webhooks/123/to%40ken",
+		"https://discord.com/api/webhooks/123/to%3Aken",
+	} {
+		_, err := BuildURL("discord", map[string]string{"webhook_url": w})
+		assert.Error(t, err, w)
 	}
 }

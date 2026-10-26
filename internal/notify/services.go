@@ -3,6 +3,7 @@ package notify
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -35,6 +36,11 @@ var requiredFields = map[string][]string{
 	"webhook":  {"url"},
 	"advanced": {"url"},
 }
+
+var (
+	discordIDRe    = regexp.MustCompile(`^[0-9]+$`)
+	discordTokenRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+)
 
 // SecretFields returns the config keys holding secrets for a service type.
 func SecretFields(serviceType string) []string {
@@ -127,6 +133,9 @@ func BuildURL(serviceType string, cfg map[string]string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("discord: %w", err)
 		}
+		if !discordIDRe.MatchString(id) || !discordTokenRe.MatchString(token) {
+			return "", fmt.Errorf("discord: webhook_url has an invalid id or token")
+		}
 		return (&url.URL{Scheme: "discord", User: url.User(token), Host: id}).String(), nil
 	case "telegram":
 		u := url.URL{Scheme: "telegram", Host: "telegram"}
@@ -139,7 +148,8 @@ func BuildURL(serviceType string, cfg map[string]string) (string, error) {
 		u.RawQuery = url.Values{"chats": {cfg["chats"]}}.Encode()
 		return u.String(), nil
 	case "pushover":
-		u := url.URL{Scheme: "pushover", User: url.UserPassword(cfg["user_key"], cfg["token"]), Host: "pushover"}
+		// shoutrrr reads the user key from the host and the API token from the password.
+		u := url.URL{Scheme: "pushover", User: url.UserPassword("shoutrrr", cfg["token"]), Host: cfg["user_key"]}
 		return u.String(), nil
 	case "gotify":
 		u := url.URL{Scheme: "gotify", Host: cfg["host"], Path: "/" + cfg["token"]}
