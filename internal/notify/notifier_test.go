@@ -107,6 +107,36 @@ func TestNotifier_DropsPendingForRemovedContainers(t *testing.T) {
 	}
 }
 
+// An empty or partial check result before the summary must not make the flush
+// drop a pending new_version item for a container that is merely missing.
+func TestNotifier_SummaryKeepsItemsForBrieflyMissingContainer(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		gap  *update.DiscoveryResult
+	}{
+		{"empty result", &update.DiscoveryResult{}},
+		{"container missing", otherContainerResult()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newDispatchStore(t)
+			addService(t, st, "sum", "summary", true, EventNewVersion)
+			fs := &fakeSender{}
+			n, _ := startNotifier(t, st, fs)
+			ctx := context.Background()
+
+			n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.0", nil), 1) // seed
+			n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", nil), 2)
+			n.OnCheckResult(ctx, tc.gap, 3)
+			n.Dispatcher().FlushSummaries(ctx, n.currentVersion, time.Now())
+
+			calls := fs.callsFor("sum")
+			if len(calls) != 1 || !strings.Contains(calls[0].msg.Text, "1.0.1") {
+				t.Fatalf("summary calls = %+v, want one containing web 1.0.1", calls)
+			}
+		})
+	}
+}
+
 func otherContainerResult() *update.DiscoveryResult {
 	return &update.DiscoveryResult{Containers: []update.ContainerInfo{{
 		ContainerUpdate: update.ContainerUpdate{ContainerName: "db", Status: update.UpToDate, CurrentVersion: "1.0.0"},

@@ -210,8 +210,9 @@ func (d *Dispatcher) record(ctx context.Context, svc storage.NotifyServiceRow, s
 }
 
 // FlushSummaries sends each enabled service's pending items as one summary.
-// new_version items whose container is gone, or already at (or past) the
-// announced version, are dropped. Nothing is sent when no items remain. Sent
+// new_version items whose container is already at (or past) the announced
+// version are dropped; items for containers missing from the last check are
+// kept (the notifier prunes them after its grace period). Nothing is sent when no items remain. Sent
 // rows are deleted only after a successful send. It sends synchronously.
 func (d *Dispatcher) FlushSummaries(ctx context.Context, current CurrentVersions, now time.Time) {
 	s := d.settings()
@@ -240,14 +241,15 @@ func (d *Dispatcher) FlushSummaries(ctx context.Context, current CurrentVersions
 				continue
 			}
 			if e.Kind == EventNewVersion && current != nil {
+				// Only drop updates already applied. A container missing from the
+				// latest check keeps its items: the notifier prunes them once the
+				// container has been gone past its grace period.
 				cur, exists := current(e.Container)
-				if !exists {
-					drop = append(drop, r)
-					continue
-				}
-				if _, newer := Classify(cur, e.ToVersion); !newer {
-					drop = append(drop, r)
-					continue
+				if exists && !comparisonUnknown(cur, e.ToVersion) {
+					if _, newer := Classify(cur, e.ToVersion); !newer {
+						drop = append(drop, r)
+						continue
+					}
 				}
 			}
 			keep = append(keep, e)

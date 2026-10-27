@@ -154,11 +154,8 @@ func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult,
 		labels[c.ContainerName] = c.Labels
 		versions[c.ContainerName] = c.CurrentVersion
 	}
-	n.lastMu.Lock()
-	n.lastLabels, n.lastVersions = labels, versions
-	n.lastMu.Unlock()
 	if len(snaps) == 0 {
-		return // an empty result carries no information; never prune or seed on it
+		return // an empty result carries no information; never prune, seed or forget on it
 	}
 
 	_, seeded, err := n.cfg.GetConfig(ctx, storage.NotifySeededKey)
@@ -172,6 +169,24 @@ func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult,
 		return
 	}
 	evs, next := Detect(prev, snaps, n.Settings(), n.now())
+
+	// Containers briefly absent (still in next) keep their last known labels and
+	// version, so mute filtering and summary pruning treat them as present.
+	n.lastMu.Lock()
+	for name := range next {
+		if _, ok := versions[name]; ok {
+			continue
+		}
+		if l, ok := n.lastLabels[name]; ok {
+			labels[name] = l
+		}
+		if v, ok := n.lastVersions[name]; ok {
+			versions[name] = v
+		}
+	}
+	n.lastLabels, n.lastVersions = labels, versions
+	n.lastMu.Unlock()
+
 	if err := n.store.ReplaceNotifyContainerStates(ctx, next); err != nil {
 		log.Printf("notify: save container states: %v", err)
 		return

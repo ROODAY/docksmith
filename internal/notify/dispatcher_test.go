@@ -217,7 +217,7 @@ func TestFlush_PrunesAppliedAndSuperseded(t *testing.T) {
 	ctx := context.Background()
 
 	d.Dispatch(ctx, []Event{newVersion("sonarr", "4.0.9", "4.0.10"), newVersion("radarr", "5.0.0", "5.1.0")})
-	d.Dispatch(ctx, []Event{newVersion("sonarr", "4.0.9", "4.0.11"), newVersion("gone", "1.0.0", "1.0.1")})
+	d.Dispatch(ctx, []Event{newVersion("sonarr", "4.0.9", "4.0.11"), newVersion("absent", "1.0.0", "1.0.1")})
 	current := func(c string) (string, bool) {
 		switch c {
 		case "sonarr":
@@ -225,7 +225,7 @@ func TestFlush_PrunesAppliedAndSuperseded(t *testing.T) {
 		case "radarr":
 			return "5.1.0", true // already applied
 		}
-		return "", false
+		return "", false // e.g. briefly missing from the last check: kept, the notifier prunes after its grace period
 	}
 	now := time.Now()
 	d.FlushSummaries(ctx, current, now)
@@ -235,7 +235,7 @@ func TestFlush_PrunesAppliedAndSuperseded(t *testing.T) {
 		t.Fatalf("sends = %d, want 1", len(calls))
 	}
 	msg := calls[0].msg
-	if msg.Title != "[engager] Docksmith summary: 1 item" {
+	if msg.Title != "[engager] Docksmith summary: 2 items" {
 		t.Fatalf("title %q", msg.Title)
 	}
 	var lines []string
@@ -247,8 +247,11 @@ func TestFlush_PrunesAppliedAndSuperseded(t *testing.T) {
 	if len(lines) != 1 || !strings.Contains(lines[0], "4.0.11") || strings.Contains(msg.Text, "4.0.10") {
 		t.Fatalf("want one sonarr line with 4.0.11, got:\n%s", msg.Text)
 	}
-	if strings.Contains(msg.Text, "radarr") || strings.Contains(msg.Text, "gone") {
-		t.Fatalf("pruned containers in summary:\n%s", msg.Text)
+	if strings.Contains(msg.Text, "radarr") {
+		t.Fatalf("applied update in summary:\n%s", msg.Text)
+	}
+	if !strings.Contains(msg.Text, "absent") {
+		t.Fatalf("item for a container missing from the last check was dropped:\n%s", msg.Text)
 	}
 	if n := len(pending(t, st, sum)); n != 0 {
 		t.Fatalf("pending rows after flush = %d", n)
