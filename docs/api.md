@@ -148,7 +148,7 @@ Return `503` when notification support is unavailable. Secret values (passwords,
 Returns server health status.
 
 ```bash
-curl http://localhost:3000/api/health
+curl http://localhost:8080/api/health
 ```
 
 Response:
@@ -164,7 +164,7 @@ Response:
 Returns system status including last check time. Used by Homepage widget.
 
 ```bash
-curl http://localhost:3000/api/status
+curl http://localhost:8080/api/status
 ```
 
 Response:
@@ -184,7 +184,7 @@ Response:
 Discovers containers and checks for updates. Clears registry cache.
 
 ```bash
-curl http://localhost:3000/api/check
+curl http://localhost:8080/api/check
 ```
 
 Response:
@@ -249,7 +249,7 @@ Use `POST /api/fix-compose-mismatch/{name}` to sync the container to the compose
 Recheck a single container for updates. Useful after changing labels.
 
 ```bash
-curl http://localhost:3000/api/container/nginx/recheck
+curl http://localhost:8080/api/container/nginx/recheck
 ```
 
 Response:
@@ -269,21 +269,21 @@ Response:
 Update a single container.
 
 ```bash
-curl -X POST http://localhost:3000/api/update \
+curl -X POST http://localhost:8080/api/update \
   -H "Content-Type: application/json" \
   -d '{"container":"nginx"}'
 ```
 
 With specific version:
 ```bash
-curl -X POST http://localhost:3000/api/update \
+curl -X POST http://localhost:8080/api/update \
   -H "Content-Type: application/json" \
   -d '{"container":"nginx","version":"1.25.0"}'
 ```
 
 With script override:
 ```bash
-curl -X POST http://localhost:3000/api/update \
+curl -X POST http://localhost:8080/api/update \
   -H "Content-Type: application/json" \
   -d '{"container":"nginx","script":"/scripts/check.sh"}'
 ```
@@ -304,7 +304,7 @@ Response:
 Update multiple containers.
 
 ```bash
-curl -X POST http://localhost:3000/api/update/batch \
+curl -X POST http://localhost:8080/api/update/batch \
   -H "Content-Type: application/json" \
   -d '{"containers":["nginx","redis","postgres"]}'
 ```
@@ -314,7 +314,7 @@ curl -X POST http://localhost:3000/api/update/batch \
 Rollback a previous update.
 
 ```bash
-curl -X POST http://localhost:3000/api/rollback \
+curl -X POST http://localhost:8080/api/rollback \
   -H "Content-Type: application/json" \
   -d '{"operation_id":"op_2024011510302345"}'
 ```
@@ -330,7 +330,7 @@ The operation will:
 2. Recreate the container with `docker compose up -d`
 
 ```bash
-curl -X POST http://localhost:3000/api/fix-compose-mismatch/mycontainer
+curl -X POST http://localhost:8080/api/fix-compose-mismatch/mycontainer
 ```
 
 Response:
@@ -359,19 +359,19 @@ List operations with optional filtering.
 
 ```bash
 # All operations
-curl http://localhost:3000/api/operations
+curl http://localhost:8080/api/operations
 
 # Filter by container
-curl "http://localhost:3000/api/operations?container=nginx"
+curl "http://localhost:8080/api/operations?container=nginx"
 
 # Filter by status
-curl "http://localhost:3000/api/operations?status=complete"
+curl "http://localhost:8080/api/operations?status=complete"
 
 # Filter by type
-curl "http://localhost:3000/api/operations?type=update"
+curl "http://localhost:8080/api/operations?type=update"
 
 # Limit results
-curl "http://localhost:3000/api/operations?limit=10"
+curl "http://localhost:8080/api/operations?limit=10"
 ```
 
 Response:
@@ -398,7 +398,7 @@ Response:
 Get rollback policies for containers.
 
 ```bash
-curl http://localhost:3000/api/policies
+curl http://localhost:8080/api/policies
 ```
 
 Response:
@@ -421,7 +421,7 @@ Response:
 Set labels on a container. Updates compose file and restarts container.
 
 ```bash
-curl -X POST http://localhost:3000/api/labels/set \
+curl -X POST http://localhost:8080/api/labels/set \
   -H "Content-Type: application/json" \
   -d '{
     "container": "nginx",
@@ -437,7 +437,7 @@ curl -X POST http://localhost:3000/api/labels/set \
 Remove labels from a container.
 
 ```bash
-curl -X POST http://localhost:3000/api/labels/remove \
+curl -X POST http://localhost:8080/api/labels/remove \
   -H "Content-Type: application/json" \
   -d '{
     "container": "nginx",
@@ -450,7 +450,7 @@ curl -X POST http://localhost:3000/api/labels/remove \
 Server-Sent Events stream for real-time updates.
 
 ```bash
-curl -N http://localhost:3000/api/events
+curl -N http://localhost:8080/api/events
 ```
 
 Event types:
@@ -471,8 +471,8 @@ data: {"type":"update.progress","payload":{"container":"nginx","stage":"pulling_
 Get available tags for an image. Useful for testing regex patterns.
 
 ```bash
-curl http://localhost:3000/api/registry/tags/nginx
-curl http://localhost:3000/api/registry/tags/ghcr.io/linuxserver/plex
+curl http://localhost:8080/api/registry/tags/nginx
+curl http://localhost:8080/api/registry/tags/ghcr.io/linuxserver/plex
 ```
 
 Response:
@@ -491,7 +491,7 @@ Response:
 Get all Docker resources in one call.
 
 ```bash
-curl http://localhost:3000/api/explorer
+curl http://localhost:8080/api/explorer
 ```
 
 Response:
@@ -512,10 +512,10 @@ Get container logs.
 
 ```bash
 # Get last 100 lines
-curl "http://localhost:3000/api/containers/nginx/logs?tail=100"
+curl "http://localhost:8080/api/containers/nginx/logs?tail=100"
 
 # Get logs since timestamp
-curl "http://localhost:3000/api/containers/nginx/logs?since=2024-01-15T10:00:00Z"
+curl "http://localhost:8080/api/containers/nginx/logs?since=2024-01-15T10:00:00Z"
 ```
 
 Response:
@@ -532,7 +532,7 @@ Response:
 Get container resource statistics.
 
 ```bash
-curl http://localhost:3000/api/containers/nginx/stats
+curl http://localhost:8080/api/containers/nginx/stats
 ```
 
 Response:
@@ -554,7 +554,7 @@ Response:
 Stop a running container.
 
 ```bash
-curl -X POST http://localhost:3000/api/containers/nginx/stop
+curl -X POST http://localhost:8080/api/containers/nginx/stop
 ```
 
 ### POST /api/containers/{name}/start
@@ -562,7 +562,7 @@ curl -X POST http://localhost:3000/api/containers/nginx/stop
 Start a stopped container.
 
 ```bash
-curl -X POST http://localhost:3000/api/containers/nginx/start
+curl -X POST http://localhost:8080/api/containers/nginx/start
 ```
 
 ### DELETE /api/containers/{name}
@@ -571,10 +571,10 @@ Remove a container.
 
 ```bash
 # Remove stopped container
-curl -X DELETE http://localhost:3000/api/containers/nginx
+curl -X DELETE http://localhost:8080/api/containers/nginx
 
 # Force remove running container
-curl -X DELETE "http://localhost:3000/api/containers/nginx?force=true"
+curl -X DELETE "http://localhost:8080/api/containers/nginx?force=true"
 ```
 
 ### POST /api/prune/system
@@ -582,7 +582,7 @@ curl -X DELETE "http://localhost:3000/api/containers/nginx?force=true"
 Remove all unused Docker resources.
 
 ```bash
-curl -X POST http://localhost:3000/api/prune/system
+curl -X POST http://localhost:8080/api/prune/system
 ```
 
 Response:

@@ -41,7 +41,8 @@ jobs:
         id: tags
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          echo "tags=ghcr.io/chrisae9/docksmith:${VERSION},ghcr.io/chrisae9/docksmith:latest" >> $GITHUB_OUTPUT
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/docksmith"
+          echo "tags=${IMAGE}:${VERSION},${IMAGE}:latest" >> $GITHUB_OUTPUT
 
       - name: Get tag message and changelog
         id: tag_message
