@@ -1,0 +1,182 @@
+package api
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/chis/docksmith/internal/notify"
+	"github.com/chis/docksmith/internal/storage"
+)
+
+type notifyTestEnv struct {
+	mux   *http.ServeMux
+	store *storage.SQLiteStorage
+}
+
+func newNotifyTestEnv(t *testing.T) *notifyTestEnv {
+	t.Helper()
+	st, err := storage.NewSQLiteStorage(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	s := &Server{
+		notifyStore: st,
+		notifier:    notify.New(st, st, nil, nil, notify.ShoutrrrSender{}, "host", 5*time.Minute),
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/notifications/settings", s.handleNotifySettingsGet)
+	mux.HandleFunc("PUT /api/notifications/settings", s.handleNotifySettingsPut)
+	mux.HandleFunc("POST /api/notifications/validate-cron", s.handleNotifyValidateCron)
+	mux.HandleFunc("GET /api/notifications/services", s.handleNotifyServicesList)
+	mux.HandleFunc("POST /api/notifications/services", s.handleNotifyServiceCreate)
+	mux.HandleFunc("PUT /api/notifications/services/{id}", s.handleNotifyServiceUpdate)
+	mux.HandleFunc("DELETE /api/notifications/services/{id}", s.handleNotifyServiceDelete)
+	mux.HandleFunc("POST /api/notifications/services/{id}/test", s.handleNotifyServiceTest)
+	return &notifyTestEnv{mux: mux, store: st}
+}
+
+func (e *notifyTestEnv) do(method, path, body string) (int, string) {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	e.mux.ServeHTTP(rec, req)
+	b, _ := io.ReadAll(rec.Body)
+	return rec.Code, string(b)
+}
+
+func (e *notifyTestEnv) settings(t *testing.T) notify.Settings {
+	t.Helper()
+	code, body := e.do("GET", "/api/notifications/settings", "")
+	if code != 200 {
+		t.Fatalf("GET settings: %d %s", code, body)
+	}
+	var resp struct {
+		Data struct {
+			Settings notify.Settings `json:"settings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatalf("decode: %v (%s)", err, body)
+	}
+	return resp.Data.Settings
+}
+
+func TestNotifySettings_RejectsTooFrequentCron(t *testing.T) {
+	e := newNotifyTestEnv(t)
+	old := e.settings(t)
+
+	upd := old
+	upd.SummaryCron = "*/1 * * * *"
+	b, _ := json.Marshal(upd)
+	code, body := e.do("PUT", "/api/notifications/settings", string(b))
+	if code != http.StatusBadRequest {
+		t.Fatalf("PUT = %d, want 400 (%s)", code, body)
+	}
+	if got := e.settings(t).SummaryCron; got != old.SummaryCron {
+		t.Errorf("cron changed to %q after rejected PUT, want %q", got, old.SummaryCron)
+	}
+}
+
+func TestNotifyValidateCron(t *testing.T) {
+	e := newNotifyTestEnv(t)
+	code, body := e.do("POST", "/api/notifications/validate-cron", `{"cron":"0 9 * * *"}`)
+	if code != 200 || !strings.Contains(body, `"valid": true`) {
+		t.Errorf("valid cron: %d %s", code, body)
+	}
+	code, body = e.do("POST", "/api/notifications/validate-cron", `{"cron":"*/1 * * * *"}`)
+	if code != 200 || !strings.Contains(body, `"valid": false`) {
+		t.Errorf("too frequent cron: %d %s", code, body)
+	}
+}
+
+func TestNotifyServices_MaskedRoundTrip(t *testing.T) {
+	e := newNotifyTestEnv(t)
+	create := `{"name":"mail","type":"smtp","delivery":"immediate","enabled":true,"events":["new_version"],
+		"config":{"host":"smtp.a.test","from":"a@a.test","to":"b@a.test","password":"hunter2"}}`
+	code, body := e.do("POST", "/api/notifications/services", create)
+	if code != 200 {
+		t.Fatalf("POST = %d %s", code, body)
+	}
+	bodies := []string{body}
+
+	code, body = e.do("GET", "/api/notifications/services", "")
+	if code != 200 || !strings.Contains(body, "********") {
+		t.Fatalf("GET = %d %s", code, body)
+	}
+	bodies = append(bodies, body)
+
+	rows, err := e.store.ListNotifyServices(t.Context())
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("list: %v %d", err, len(rows))
+	}
+	id := rows[0].ID
+
+	put := `{"name":"mail","type":"smtp","delivery":"summary","enabled":true,"events":["new_version"],
+		"config":{"host":"smtp.b.test","from":"a@a.test","to":"b@a.test","password":"********"}}`
+	code, body = e.do("PUT", "/api/notifications/services/"+strconv.FormatInt(id, 10), put)
+	if code != 200 {
+		t.Fatalf("PUT = %d %s", code, body)
+	}
+	bodies = append(bodies, body)
+
+	got, found, err := e.store.GetNotifyService(t.Context(), id)
+	if err != nil || !found {
+		t.Fatalf("get: %v %v", err, found)
+	}
+	if got.Config["password"] != "hunter2" {
+		t.Errorf("stored password = %q, want hunter2", got.Config["password"])
+	}
+	if got.Config["host"] != "smtp.b.test" {
+		t.Errorf("host = %q, want smtp.b.test", got.Config["host"])
+	}
+	for _, b := range bodies {
+		if strings.Contains(b, "hunter2") {
+			t.Errorf("response leaks secret: %s", b)
+		}
+	}
+}
+
+func TestNotifyServices_RejectsUnknownEvent(t *testing.T) {
+	e := newNotifyTestEnv(t)
+	body := `{"name":"n","type":"ntfy","delivery":"immediate","enabled":true,"events":["bogus"],"config":{"topic":"t"}}`
+	if code, resp := e.do("POST", "/api/notifications/services", body); code != http.StatusBadRequest {
+		t.Errorf("unknown event: %d %s", code, resp)
+	}
+	bad := `{"name":"n","type":"ntfy","delivery":"weekly","enabled":true,"events":[],"config":{"topic":"t"}}`
+	if code, resp := e.do("POST", "/api/notifications/services", bad); code != http.StatusBadRequest {
+		t.Errorf("bad delivery: %d %s", code, resp)
+	}
+}
+
+func TestNotifyServices_UnknownAndInvalidID(t *testing.T) {
+	e := newNotifyTestEnv(t)
+	body := `{"name":"n","type":"ntfy","delivery":"immediate","enabled":true,"events":[],"config":{"topic":"t"}}`
+	if code, _ := e.do("PUT", "/api/notifications/services/999", body); code != http.StatusNotFound {
+		t.Errorf("PUT unknown = %d, want 404", code)
+	}
+	if code, _ := e.do("DELETE", "/api/notifications/services/999", ""); code != http.StatusNotFound {
+		t.Errorf("DELETE unknown = %d, want 404", code)
+	}
+	if code, _ := e.do("POST", "/api/notifications/services/999/test", ""); code != http.StatusNotFound {
+		t.Errorf("test unknown = %d, want 404", code)
+	}
+	if code, _ := e.do("DELETE", "/api/notifications/services/abc", ""); code != http.StatusBadRequest {
+		t.Errorf("DELETE abc = %d, want 400", code)
+	}
+}
+
+func TestNotify_UnavailableWithoutNotifier(t *testing.T) {
+	s := &Server{}
+	rec := httptest.NewRecorder()
+	s.handleNotifySettingsGet(rec, httptest.NewRequest("GET", "/api/notifications/settings", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("code = %d, want 503", rec.Code)
+	}
+}

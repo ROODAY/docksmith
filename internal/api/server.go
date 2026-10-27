@@ -267,6 +267,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux, staticDir string) {
 	mux.HandleFunc("DELETE /api/networks/{id}", s.handleRemoveNetwork)
 	mux.HandleFunc("DELETE /api/volumes/{name}", s.handleRemoveVolume)
 
+	// Notification endpoints
+	mux.HandleFunc("GET /api/notifications/settings", s.handleNotifySettingsGet)
+	mux.HandleFunc("PUT /api/notifications/settings", s.handleNotifySettingsPut)
+	mux.HandleFunc("POST /api/notifications/validate-cron", s.handleNotifyValidateCron)
+	mux.HandleFunc("GET /api/notifications/services", s.handleNotifyServicesList)
+	mux.HandleFunc("POST /api/notifications/services", s.handleNotifyServiceCreate)
+	mux.HandleFunc("PUT /api/notifications/services/{id}", s.handleNotifyServiceUpdate)
+	mux.HandleFunc("DELETE /api/notifications/services/{id}", s.handleNotifyServiceDelete)
+	mux.HandleFunc("POST /api/notifications/services/{id}/test", s.handleNotifyServiceTest)
+
 	// Prune endpoints
 	mux.HandleFunc("POST /api/prune/containers", s.handlePruneContainers)
 	mux.HandleFunc("POST /api/prune/images", s.handlePruneImages)
