@@ -231,6 +231,9 @@ export function describeChanges(changes: RestartOperation['labelChanges']): stri
   if (changes.notify_digest !== undefined) {
     descriptions.push(changes.notify_digest ? 'Enable digest-change notifications' : 'Disable digest-change notifications');
   }
+  if (changes.remove_labels?.includes('docksmith.notify-digest')) {
+    descriptions.push('Use global digest-change notification setting');
+  }
 
   return descriptions;
 }

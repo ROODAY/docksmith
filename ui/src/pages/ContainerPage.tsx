@@ -76,7 +76,7 @@ export function ContainerPage() {
   const [tagRegex, setTagRegex] = useState<string>('');
   const [notifyFlag, setNotifyFlag] = useState(true);
   const [notifyLevel, setNotifyLevel] = useState<string>('');
-  const [notifyDigest, setNotifyDigest] = useState(false);
+  const [notifyDigest, setNotifyDigest] = useState<'' | 'true' | 'false'>('');
   const [hasChanges, setHasChanges] = useState(false);
   const [refreshingPrecheck, setRefreshingPrecheck] = useState(false);
   const [activeHelp, setActiveHelp] = useState<string | null>(null);
@@ -130,7 +130,7 @@ export function ContainerPage() {
   const [originalTagRegex, setOriginalTagRegex] = useState<string>('');
   const [originalNotify, setOriginalNotify] = useState(true);
   const [originalNotifyLevel, setOriginalNotifyLevel] = useState<string>('');
-  const [originalNotifyDigest, setOriginalNotifyDigest] = useState(false);
+  const [originalNotifyDigest, setOriginalNotifyDigest] = useState<'' | 'true' | 'false'>('');
 
   // Track pending state from sub-pages
   const pendingStateRef = useRef<{ selectedScript?: string; restartAfter?: string; tagRegex?: string }>({});
@@ -180,7 +180,7 @@ export function ContainerPage() {
           const tagRegexValue = labels['docksmith.tag-regex'] || '';
           const notify = labels['docksmith.notify'] !== 'false';
           const notifyLevelValue = labels['docksmith.notify-level'] || '';
-          const notifyDigestValue = labels['docksmith.notify-digest'] === 'true';
+          const notifyDigestValue: '' | 'true' | 'false' = labels['docksmith.notify-digest'] === 'true' ? 'true' : labels['docksmith.notify-digest'] === 'false' ? 'false' : '';
 
           // Convert version pin labels to single value
           let pin: 'none' | 'patch' | 'minor' | 'major' = 'none';
@@ -395,7 +395,7 @@ export function ContainerPage() {
   const handleSave = (force = false) => {
     if (!docksmithData) return;
 
-    const labelChanges: Record<string, boolean | string> = {};
+    const labelChanges: Record<string, boolean | string | string[]> = {};
 
     if (ignoreFlag !== originalIgnore) labelChanges.ignore = ignoreFlag;
     if (allowLatestFlag !== originalAllowLatest) labelChanges.allow_latest = allowLatestFlag;
@@ -409,7 +409,10 @@ export function ContainerPage() {
     if (tagRegex !== originalTagRegex) labelChanges.tag_regex = tagRegex || '';
     if (notifyFlag !== originalNotify) labelChanges.notify = notifyFlag;
     if (notifyLevel !== originalNotifyLevel) labelChanges.notify_level = notifyLevel;
-    if (notifyDigest !== originalNotifyDigest) labelChanges.notify_digest = notifyDigest;
+    if (notifyDigest !== originalNotifyDigest) {
+      if (notifyDigest === '') labelChanges.remove_labels = ['docksmith.notify-digest'];
+      else labelChanges.notify_digest = notifyDigest === 'true';
+    }
 
     if (Object.keys(labelChanges).length === 0) return;
 
@@ -1281,23 +1284,28 @@ export function ContainerPage() {
                 </div>
               )}
 
-              <div className="checkbox-row">
-                <button
-                  className="help-btn"
-                  onClick={() => setActiveHelp(activeHelp === 'notifyDigest' ? null : 'notifyDigest')}
-                  aria-label="Help for Digest Notifications"
+              <div className="setting-item segmented-row">
+                <div className="setting-label-with-help">
+                  <button
+                    className="help-btn"
+                    onClick={() => setActiveHelp(activeHelp === 'notifyDigest' ? null : 'notifyDigest')}
+                    aria-label="Help for Digest Notifications"
+                  >
+                    <i className="fa-solid fa-circle-question"></i>
+                  </button>
+                  <label htmlFor="notify-digest-select" className="nav-title">Digest Notifications</label>
+                </div>
+                <select
+                  id="notify-digest-select"
+                  className="retention-select"
+                  value={notifyDigest}
+                  disabled={!notifyFlag}
+                  onChange={(e) => setNotifyDigest(e.target.value as '' | 'true' | 'false')}
                 >
-                  <i className="fa-solid fa-circle-question"></i>
-                </button>
-                <label className="row-label-area">
-                  <span className="row-label">Digest Notifications</span>
-                  <input
-                    type="checkbox"
-                    checked={notifyDigest}
-                    disabled={!notifyFlag}
-                    onChange={(e) => setNotifyDigest(e.target.checked)}
-                  />
-                </label>
+                  <option value="">Use global</option>
+                  <option value="true">On</option>
+                  <option value="false">Off</option>
+                </select>
               </div>
               {activeHelp === 'notifyDigest' && (
                 <div className="help-tooltip">

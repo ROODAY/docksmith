@@ -274,6 +274,16 @@ export function NotificationSettings() {
     for (const [k, v] of Object.entries(form.config)) {
       if (v.trim() !== '') config[k] = v;
     }
+    // A blank secret on edit keeps the stored value (the server swaps MASKED_SECRET back in).
+    const original = editingId === null ? undefined : services.find(s => s.id === editingId);
+    const typeFields = SERVICE_TYPES.find(t => t.type === form.type)?.fields ?? [];
+    if (original && original.type === form.type) {
+      for (const f of typeFields) {
+        if (f.secret && config[f.key] === undefined && original.config[f.key] === MASKED_SECRET) {
+          config[f.key] = MASKED_SECRET;
+        }
+      }
+    }
     setFormSaving(true);
     setFormError(null);
     try {
