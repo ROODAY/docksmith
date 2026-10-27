@@ -310,6 +310,37 @@ func (s *SQLiteStorage) DeleteNotifyPending(ctx context.Context, ids []int64) er
 	return nil
 }
 
+// DeleteNotifyPendingIfUnchanged implements NotifyStore. Each row is deleted
+// only when its id still holds the same payload, so a row replaced by a newer
+// upsert (which keeps the id) after it was read survives. One transaction.
+func (s *SQLiteStorage) DeleteNotifyPendingIfUnchanged(ctx context.Context, rows []NotifyPendingRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	err := s.retryWithBackoff(ctx, func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		stmt, err := tx.PrepareContext(ctx, `DELETE FROM notify_pending WHERE id = ? AND payload = ?`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		for _, r := range rows {
+			if _, err := stmt.ExecContext(ctx, r.ID, r.Payload); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete notify pending: %w", err)
+	}
+	return nil
+}
+
 // DeleteNotifyPendingForContainer implements NotifyStore.
 func (s *SQLiteStorage) DeleteNotifyPendingForContainer(ctx context.Context, containerName string) error {
 	err := s.retryWithBackoff(ctx, func() error {

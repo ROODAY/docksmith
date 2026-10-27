@@ -192,3 +192,32 @@ func TestNotifyPending_SurvivesReopen(t *testing.T) {
 		t.Fatalf("unexpected rows: %+v", rows)
 	}
 }
+
+func TestNotifyPending_DeleteIfUnchanged(t *testing.T) {
+	s, _ := newNotifyTestStorage(t)
+	ctx := context.Background()
+	id, err := s.SaveNotifyService(ctx, NotifyServiceRow{Name: "a", Type: "x", Delivery: "summary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"k1", "k2"} {
+		if err := s.UpsertNotifyPending(ctx, NotifyPendingRow{ServiceID: id, DedupKey: k, Kind: "k", Payload: `{"v":1}`}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read, _ := s.ListNotifyPending(ctx, id)
+	// k2 is replaced after it was read: same row id, newer payload.
+	if err := s.UpsertNotifyPending(ctx, NotifyPendingRow{ServiceID: id, DedupKey: "k2", Kind: "k", Payload: `{"v":2}`}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteNotifyPendingIfUnchanged(ctx, read); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := s.ListNotifyPending(ctx, id)
+	if len(rows) != 1 || rows[0].DedupKey != "k2" || rows[0].Payload != `{"v":2}` {
+		t.Fatalf("want only the replaced k2 row left, got %+v", rows)
+	}
+	if err := s.DeleteNotifyPendingIfUnchanged(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+}

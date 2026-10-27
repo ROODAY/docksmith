@@ -198,11 +198,13 @@ func change(e Event) string {
 }
 
 // linkBase returns BaseURL without a trailing slash, or "" when it is unset or
-// not an absolute http(s) URL.
+// not an absolute http(s) URL without query or fragment (links are appended
+// to it as path segments).
 func linkBase(raw string) string {
 	raw = strings.TrimSpace(raw)
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#") {
 		return ""
 	}
 	return strings.TrimRight(raw, "/")

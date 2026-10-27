@@ -50,6 +50,7 @@ type NotifyStore interface {
 	UpsertNotifyPending(ctx context.Context, row NotifyPendingRow) error                            // on (service_id, dedup_key) conflict: replace payload, kind and created_at
 	ListNotifyPending(ctx context.Context, serviceID int64) ([]NotifyPendingRow, error)
 	DeleteNotifyPending(ctx context.Context, ids []int64) error
+	DeleteNotifyPendingIfUnchanged(ctx context.Context, rows []NotifyPendingRow) error // deletes each row only if its id and payload still match (one transaction)
 	DeleteNotifyPendingForContainer(ctx context.Context, containerName string) error
 }
 

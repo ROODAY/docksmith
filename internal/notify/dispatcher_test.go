@@ -26,13 +26,17 @@ type fakeSender struct {
 	err     error
 	block   chan struct{} // when non-nil, Send blocks until it is closed (ignoring ctx)
 	entered chan struct{} // receives once per call, if non-nil
+	onSend  func()        // called during each Send, if non-nil
 }
 
 func (f *fakeSender) Send(ctx context.Context, _ string, cfg map[string]string, msg Message) error {
 	f.mu.Lock()
 	f.calls = append(f.calls, sendCall{cfg["id"], msg})
-	err, block, entered := f.err, f.block, f.entered
+	err, block, entered, onSend := f.err, f.block, f.entered, f.onSend
 	f.mu.Unlock()
+	if onSend != nil {
+		onSend()
+	}
 	if entered != nil {
 		select {
 		case entered <- struct{}{}:
@@ -445,4 +449,64 @@ func setRetryDelays(d ...time.Duration) func() {
 	old := retryDelays
 	retryDelays = d
 	return func() { retryDelays = old }
+}
+
+func TestFlush_KeepsVersionUpsertedDuringSend(t *testing.T) {
+	st := newDispatchStore(t)
+	sum := addService(t, st, "sum", "summary", true, EventNewVersion)
+	fs := &fakeSender{}
+	d := NewDispatcher(st, fs, staticSettings(DefaultSettings("h")))
+	ctx := context.Background()
+	d.Dispatch(ctx, []Event{newVersion("sonarr", "4.0.9", "4.0.10")})
+	fs.onSend = func() { d.Dispatch(ctx, []Event{newVersion("sonarr", "4.0.9", "4.0.11")}) }
+	current := func(string) (string, bool) { return "4.0.9", true }
+	d.FlushSummaries(ctx, current, time.Now())
+
+	rows := pending(t, st, sum)
+	if len(rows) != 1 || !strings.Contains(rows[0].Payload, "4.0.11") {
+		t.Fatalf("newer pending row lost: %+v", rows)
+	}
+	row, _, _ := st.GetNotifyService(ctx, sum)
+	if row.LastSummaryAt == nil {
+		t.Fatal("summary time not recorded")
+	}
+}
+
+func TestFlush_StaleDropKeepsNewerUpsert(t *testing.T) {
+	st := newDispatchStore(t)
+	sum := addService(t, st, "sum", "summary", true, EventNewVersion)
+	fs := &fakeSender{}
+	d := NewDispatcher(st, fs, staticSettings(DefaultSettings("h")))
+	ctx := context.Background()
+	d.Dispatch(ctx, []Event{newVersion("sonarr", "4.0.9", "4.0.10")})
+	// sonarr is already at 4.0.10, so the row is stale; a newer version
+	// arrives while the flush is deciding (inside the current() lookup).
+	current := func(string) (string, bool) {
+		d.Dispatch(ctx, []Event{newVersion("sonarr", "4.0.10", "4.0.11")})
+		return "4.0.10", true
+	}
+	d.FlushSummaries(ctx, current, time.Now())
+	rows := pending(t, st, sum)
+	if len(rows) != 1 || !strings.Contains(rows[0].Payload, "4.0.11") {
+		t.Fatalf("newer pending row lost: %+v", rows)
+	}
+	if fs.total() != 0 {
+		t.Fatalf("sends = %d, want 0", fs.total())
+	}
+}
+
+func TestSendTest_CallerCancelNotRecorded(t *testing.T) {
+	st := newDispatchStore(t)
+	sid := addService(t, st, "s", "immediate", true, EventNewVersion)
+	fs := &fakeSender{err: context.Canceled}
+	d := NewDispatcher(st, fs, staticSettings(DefaultSettings("h")))
+	ctx, cancel := context.WithCancel(context.Background())
+	fs.onSend = cancel
+	if err := d.SendTest(ctx, sid); err == nil {
+		t.Fatal("expected error")
+	}
+	row, _, _ := st.GetNotifyService(context.Background(), sid)
+	if row.LastError != "" || row.LastErrorAt != nil {
+		t.Fatalf("caller cancellation recorded as service error: %q", row.LastError)
+	}
 }

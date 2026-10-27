@@ -71,3 +71,12 @@ func TestRender_RejectsNonHTTPBaseURL(t *testing.T) {
 		t.Fatalf("non-http base URL produced links:\n%s", m.HTML)
 	}
 }
+
+func TestRender_RejectsBaseURLWithQueryOrFragment(t *testing.T) {
+	for _, b := range []string{"https://d.example.com/?x=1", "https://d.example.com/#frag"} {
+		m := Render(Settings{BaseURL: b}, []Event{{Kind: EventNewVersion, Container: "a", FromVersion: "1", ToVersion: "2"}}, false)
+		if strings.Contains(m.HTML, "href") {
+			t.Fatalf("base %q produced links:\n%s", b, m.HTML)
+		}
+	}
+}

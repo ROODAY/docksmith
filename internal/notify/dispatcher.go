@@ -231,32 +231,32 @@ func (d *Dispatcher) FlushSummaries(ctx context.Context, current CurrentVersions
 		}
 		var keep []Event
 		var keptRows []storage.NotifyPendingRow
-		var drop []int64
+		var drop []storage.NotifyPendingRow
 		for _, r := range rows {
 			var e Event
 			if err := json.Unmarshal([]byte(r.Payload), &e); err != nil {
 				log.Printf("notify: dropping unreadable pending item %d: %v", r.ID, err)
-				drop = append(drop, r.ID)
+				drop = append(drop, r)
 				continue
 			}
 			if e.Kind == EventNewVersion && current != nil {
 				cur, exists := current(e.Container)
 				if !exists {
-					drop = append(drop, r.ID)
+					drop = append(drop, r)
 					continue
 				}
 				if _, newer := Classify(cur, e.ToVersion); !newer {
-					drop = append(drop, r.ID)
+					drop = append(drop, r)
 					continue
 				}
 			}
 			keep = append(keep, e)
 			keptRows = append(keptRows, r)
 		}
-		if len(drop) > 0 {
-			if err := d.store.DeleteNotifyPending(ctx, drop); err != nil {
-				log.Printf("notify: delete stale pending for service %q: %v", svc.Name, err)
-			}
+		// Conditional deletes: a row replaced by a newer upsert (same id, new
+		// payload) since it was listed survives, on both paths.
+		if err := d.store.DeleteNotifyPendingIfUnchanged(ctx, drop); err != nil {
+			log.Printf("notify: delete stale pending for service %q: %v", svc.Name, err)
 		}
 		if len(keep) == 0 {
 			continue
@@ -264,41 +264,19 @@ func (d *Dispatcher) FlushSummaries(ctx context.Context, current CurrentVersions
 		if err := d.deliver(ctx, svc, Render(s, keep, true)); err != nil {
 			continue
 		}
-		d.deleteSent(ctx, svc, keptRows)
+		if err := d.store.DeleteNotifyPendingIfUnchanged(ctx, keptRows); err != nil {
+			log.Printf("notify: delete sent pending for service %q: %v", svc.Name, err)
+			continue
+		}
 		if err := d.store.SetNotifySummarySent(ctx, svc.ID, now); err != nil {
 			log.Printf("notify: set summary time for service %q: %v", svc.Name, err)
 		}
 	}
 }
 
-// deleteSent deletes the sent rows, skipping any that were replaced (same
-// dedup key upserted with a newer payload) while the summary was being sent.
-func (d *Dispatcher) deleteSent(ctx context.Context, svc storage.NotifyServiceRow, sent []storage.NotifyPendingRow) {
-	cur, err := d.store.ListNotifyPending(ctx, svc.ID)
-	if err != nil {
-		log.Printf("notify: list pending for service %q: %v", svc.Name, err)
-		return
-	}
-	sentPayload := make(map[int64]string, len(sent))
-	for _, r := range sent {
-		sentPayload[r.ID] = r.Payload
-	}
-	var ids []int64
-	for _, r := range cur {
-		if p, ok := sentPayload[r.ID]; ok && p == r.Payload {
-			ids = append(ids, r.ID)
-		}
-	}
-	if len(ids) == 0 {
-		return
-	}
-	if err := d.store.DeleteNotifyPending(ctx, ids); err != nil {
-		log.Printf("notify: delete sent pending for service %q: %v", svc.Name, err)
-	}
-}
-
 // SendTest synchronously sends a test message to a service (enabled or not)
-// with a single attempt, records the result, and returns the send error.
+// with a single attempt, records the result (unless the caller's ctx ended),
+// and returns the send error.
 func (d *Dispatcher) SendTest(ctx context.Context, serviceID int64) error {
 	svc, ok, err := d.store.GetNotifyService(ctx, serviceID)
 	if err != nil {
@@ -314,6 +292,9 @@ func (d *Dispatcher) SendTest(ctx context.Context, serviceID int64) error {
 	text := fmt.Sprintf("This is a test notification from Docksmith for service %q.", svc.Name)
 	msg := Message{Title: title, Text: text, HTML: "<p>" + html.EscapeString(text) + "</p>"}
 	err = d.sendOnce(ctx, svc, msg)
+	if err != nil && ctx.Err() != nil {
+		return err // the caller gave up (e.g. request cancelled); not the service's fault
+	}
 	d.record(ctx, svc, err)
 	return err
 }
