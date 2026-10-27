@@ -12,6 +12,11 @@ import (
 
 const seenTTL = time.Hour
 
+// updateOperationTypes are the operation types (set by the update
+// orchestrator) that represent image updates. Rollbacks are handled separately;
+// every other type on the progress bus (restart, stop, label_change, ...) is ignored.
+var updateOperationTypes = map[string]bool{"single": true, "batch": true, "stack": true}
+
 // OperationLookup fetches stored update operations.
 type OperationLookup interface {
 	GetUpdateOperation(ctx context.Context, operationID string) (storage.UpdateOperation, bool, error)
@@ -75,6 +80,10 @@ func (w *OperationWatcher) handle(ctx context.Context, e events.Event) {
 		w.unmark(key) // allow a later duplicate event to retry
 		return
 	}
+	rollback := op.OperationType == "rollback"
+	if !rollback && !updateOperationTypes[op.OperationType] {
+		return // restart, label_change, fix_mismatch etc. are not updates
+	}
 
 	name, stack := container, str("stack_name")
 	from, to := op.OldVersion, op.NewVersion
@@ -101,7 +110,6 @@ func (w *OperationWatcher) handle(ctx context.Context, e events.Event) {
 	}
 
 	ev := Event{Container: name, Stack: stack, FromVersion: from, ToVersion: to, Message: message, OperationID: opID, At: time.Now()}
-	rollback := op.OperationType == "rollback"
 	switch {
 	case stage == "complete" && rollback:
 		ev.Kind = EventRollback

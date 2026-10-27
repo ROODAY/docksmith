@@ -145,3 +145,34 @@ func TestOperationWatcher_NoContainersOp(t *testing.T) {
 		t.Fatalf("got %+v", c.ev)
 	}
 }
+
+func TestOperationWatcher_IgnoresNonUpdateOperations(t *testing.T) {
+	ctx := context.Background()
+	for _, typ := range []string{"restart", "stop", "start", "remove", "label_change", "fix_mismatch", "update", ""} {
+		t.Run(typ, func(t *testing.T) {
+			c := &collector{}
+			w := NewOperationWatcher(nil, fakeOps{map[string]storage.UpdateOperation{
+				"o": {OperationID: "o", ContainerName: "web", OperationType: typ, OldVersion: `{"a":"1"}`, NewVersion: `{"a":"2"}`},
+			}}, c.emit)
+			w.handle(ctx, progress("o", "web", "complete", "done"))
+			w.handle(ctx, progress("o", "web", "failed", "boom"))
+			if len(c.ev) != 0 {
+				t.Fatalf("type %q produced events %+v", typ, c.ev)
+			}
+		})
+	}
+}
+
+func TestOperationWatcher_AllowsUpdateTypes(t *testing.T) {
+	ctx := context.Background()
+	for _, typ := range []string{"single", "batch", "stack"} {
+		c := &collector{}
+		w := NewOperationWatcher(nil, fakeOps{map[string]storage.UpdateOperation{
+			"o": {OperationID: "o", ContainerName: "web", OperationType: typ},
+		}}, c.emit)
+		w.handle(ctx, progress("o", "web", "complete", ""))
+		if k := c.kinds(); k[EventUpdateSucceeded] != 1 {
+			t.Fatalf("type %q: got %v", typ, k)
+		}
+	}
+}
