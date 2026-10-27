@@ -100,9 +100,25 @@ func secretNeedles(serviceType string, cfg map[string]string, svcURL string) []s
 			for _, seg := range strings.Split(u.Path, "/") {
 				addAll(seg)
 			}
-			for _, v := range u.Query()["token"] {
-				addAll(v)
+			// Query values may be secrets (token, key, ...) and senders such as
+			// shoutrrr's generic service re-encode and re-order the query, so
+			// cover every value plus the raw and re-encoded query strings.
+			q := u.Query()
+			for _, vs := range q {
+				for _, v := range vs {
+					addAll(v)
+				}
 			}
+			for _, raw := range strings.Split(u.RawQuery, "&") {
+				if _, v, ok := strings.Cut(raw, "="); ok {
+					addAll(v)
+				}
+			}
+			addAll(u.RawQuery)
+			addAll(q.Encode())
+			bare := *u
+			bare.RawQuery, bare.ForceQuery, bare.Fragment, bare.RawFragment = "", false, "", ""
+			addAll(bare.String())
 		}
 	}
 	for _, k := range secretFields[serviceType] {

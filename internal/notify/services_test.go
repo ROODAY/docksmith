@@ -162,3 +162,33 @@ func TestBuildURL_DiscordRejectsUnsafeParts(t *testing.T) {
 		assert.Error(t, err, w)
 	}
 }
+
+func TestShoutrrrSender_RedactsAllQueryValues(t *testing.T) {
+	cases := map[string]func() (string, func()){
+		"server 500": func() (string, func()) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "boom", http.StatusInternalServerError)
+			}))
+			return srv.URL, srv.Close
+		},
+		"unreachable": func() (string, func()) {
+			srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			u := srv.URL
+			srv.Close()
+			return u, func() {}
+		},
+	}
+	for name, mk := range cases {
+		t.Run(name, func(t *testing.T) {
+			base, done := mk()
+			defer done()
+			cfg := map[string]string{"url": base + "/hook?token=BBBsecretTok&key=AAAsecretKey&z=a+b%2Fc"}
+			err := ShoutrrrSender{}.Send(context.Background(), "webhook", cfg, Message{Title: "t", Text: "hi"})
+			require.Error(t, err)
+			msg := err.Error()
+			for _, secret := range []string{"AAAsecretKey", "BBBsecretTok", "a+b%2Fc", "a b/c", "a%2Bb%2Fc"} {
+				assert.NotContains(t, msg, secret, msg)
+			}
+		})
+	}
+}
