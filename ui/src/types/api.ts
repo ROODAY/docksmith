@@ -236,6 +236,9 @@ export interface SetLabelsRequest {
   version_max?: string;
   script?: string;
   restart_after?: string;
+  notify?: boolean;
+  notify_level?: string;
+  notify_digest?: boolean;
   no_restart?: boolean;
   force?: boolean;
 }
@@ -470,3 +473,62 @@ export type DockerConfigResponse = APIResponse<DockerRegistryInfo>;
 export type SetLabelsResponse = APIResponse<LabelOperationResult>;
 export type RegistryTagsAPIResponse = APIResponse<RegistryTagsResponse>;
 export type ExplorerResponse = APIResponse<ExplorerData>;
+
+// Notifications (matches internal/notify and api/handlers_notify.go)
+export type EventKind =
+  | 'new_version'
+  | 'digest_changed'
+  | 'update_succeeded'
+  | 'update_failed'
+  | 'rollback'
+  | 'update_blocked'
+  | 'check_failing'
+  | 'compose_mismatch';
+
+export type NotifyTiming = 'immediate' | 'summary';
+
+export interface NotifySettings {
+  server_name: string;
+  base_url: string;
+  min_level: string;
+  notify_digest: boolean;
+  summary_cron: string;
+  timing: Record<EventKind, NotifyTiming>;
+}
+
+export interface NotifySettingsPayload {
+  settings: NotifySettings;
+  timezone: string;
+  timezone_warning: string;
+  check_interval: string;
+  next_summaries: string[];
+}
+
+export interface NotifyCronValidation {
+  valid: boolean;
+  error: string;
+  next: string[];
+}
+
+export interface NotifyService {
+  id: number;
+  name: string;
+  type: string;
+  delivery: NotifyTiming;
+  enabled: boolean;
+  events: EventKind[];
+  config: Record<string, string>;
+  last_success_at?: string;
+  last_error_at?: string;
+  last_summary_at?: string;
+  last_error?: string;
+}
+
+export interface NotifyServiceInput {
+  name: string;
+  type: string;
+  delivery: NotifyTiming;
+  enabled: boolean;
+  events: EventKind[];
+  config: Record<string, string>;
+}
