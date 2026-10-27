@@ -180,3 +180,55 @@ func TestNotify_UnavailableWithoutNotifier(t *testing.T) {
 		t.Errorf("code = %d, want 503", rec.Code)
 	}
 }
+
+func TestNotifyServices_CreateNeverStoresMask(t *testing.T) {
+	e := newNotifyTestEnv(t)
+	code, body := e.do("POST", "/api/notifications/services",
+		`{"name":"hook","type":"webhook","delivery":"immediate","enabled":true,"events":["new_version"],"config":{"url":"********"}}`)
+	if code != http.StatusBadRequest || !strings.Contains(body, "missing required fields: url") {
+		t.Fatalf("POST masked required secret = %d %s, want 400 missing url", code, body)
+	}
+
+	code, body = e.do("POST", "/api/notifications/services",
+		`{"name":"mail","type":"smtp","delivery":"immediate","enabled":true,"events":["new_version"],
+		"config":{"host":"smtp.a.test","from":"a@a.test","to":"b@a.test","password":"********"}}`)
+	if code != 200 {
+		t.Fatalf("POST = %d %s", code, body)
+	}
+	rows, err := e.store.ListNotifyServices(t.Context())
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("list: %v %d", err, len(rows))
+	}
+	if v, ok := rows[0].Config["password"]; ok {
+		t.Fatalf("masked password stored as %q", v)
+	}
+}
+
+func TestNotifyServices_TypeChangeDropsMaskedValues(t *testing.T) {
+	e := newNotifyTestEnv(t)
+	code, body := e.do("POST", "/api/notifications/services",
+		`{"name":"mail","type":"smtp","delivery":"immediate","enabled":true,"events":["new_version"],
+		"config":{"host":"smtp.a.test","from":"a@a.test","to":"b@a.test","password":"hunter2"}}`)
+	if code != 200 {
+		t.Fatalf("POST = %d %s", code, body)
+	}
+	rows, _ := e.store.ListNotifyServices(t.Context())
+	id := strconv.FormatInt(rows[0].ID, 10)
+
+	// The UI resubmits the masked smtp fields alongside the new ntfy ones.
+	code, body = e.do("PUT", "/api/notifications/services/"+id,
+		`{"name":"mail","type":"ntfy","delivery":"immediate","enabled":true,"events":["new_version"],
+		"config":{"topic":"t","password":"********","smtp_password":"********","host":"ntfy.a.test"}}`)
+	if code != 200 {
+		t.Fatalf("PUT = %d %s", code, body)
+	}
+	got, _, _ := e.store.GetNotifyService(t.Context(), rows[0].ID)
+	for k, v := range got.Config {
+		if v == notify.MaskedSecret || v == "hunter2" {
+			t.Errorf("config[%s] = %q after type change", k, v)
+		}
+	}
+	if got.Config["topic"] != "t" || got.Config["host"] != "ntfy.a.test" {
+		t.Errorf("config = %v", got.Config)
+	}
+}

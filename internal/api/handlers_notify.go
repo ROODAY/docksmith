@@ -182,9 +182,9 @@ func (s *Server) handleNotifyServiceCreate(w http.ResponseWriter, r *http.Reques
 		RespondBadRequest(w, err)
 		return
 	}
-	if req.Config == nil {
-		req.Config = map[string]string{}
-	}
+	// There is nothing stored to restore a masked secret from: drop it, so a
+	// required secret fails validation instead of storing the literal mask.
+	req.Config = notify.MergeSecrets(req.Type, req.Config, nil)
 	if err := notify.ValidateServiceConfig(req.Type, req.Config); err != nil {
 		RespondBadRequest(w, err)
 		return
@@ -232,6 +232,15 @@ func (s *Server) handleNotifyServiceUpdate(w http.ResponseWriter, r *http.Reques
 		storedCfg = stored.Config
 	}
 	merged := notify.MergeSecrets(req.Type, req.Config, storedCfg)
+	if stored.Type != req.Type {
+		// Masked values of the old type's secrets may be resubmitted under
+		// fields that are not secrets of the new type; never store the mask.
+		for k, v := range merged {
+			if v == notify.MaskedSecret {
+				delete(merged, k)
+			}
+		}
+	}
 	if err := notify.ValidateServiceConfig(req.Type, merged); err != nil {
 		RespondBadRequest(w, err)
 		return
