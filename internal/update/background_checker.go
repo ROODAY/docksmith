@@ -26,6 +26,8 @@ type BackgroundChecker struct {
 	unsubscribe     func()           // Unsubscribe from event bus
 	refreshTimer    *time.Timer      // Debounce timer for container update refreshes
 	refreshTimerMu  sync.Mutex       // Protects refreshTimer
+	observerMu      sync.RWMutex
+	observer        func(ctx context.Context, r *DiscoveryResult) // Called after each successful check
 }
 
 // CheckResultCache stores the latest check results
@@ -260,6 +262,8 @@ func (bc *BackgroundChecker) runCheck() {
 	bc.cache.lastBackgroundRun = now
 	bc.cache.mu.Unlock()
 
+	bc.notifyObserver(result)
+
 	duration := time.Since(startTime)
 	log.Printf("BACKGROUND_CHECKER: Check completed in %v, found %d containers",
 		duration, result.TotalChecked)
@@ -290,6 +294,33 @@ func (bc *BackgroundChecker) runCheck() {
 			}
 		}
 	}
+}
+
+// SetResultObserver registers fn to be called (in its own goroutine) with the
+// result of each successful check. fn must not modify the result.
+func (bc *BackgroundChecker) SetResultObserver(fn func(ctx context.Context, r *DiscoveryResult)) {
+	bc.observerMu.Lock()
+	bc.observer = fn
+	bc.observerMu.Unlock()
+}
+
+// notifyObserver hands result to the observer without blocking the caller;
+// a panicking observer is logged and recovered.
+func (bc *BackgroundChecker) notifyObserver(result *DiscoveryResult) {
+	bc.observerMu.RLock()
+	fn := bc.observer
+	bc.observerMu.RUnlock()
+	if fn == nil {
+		return
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("BACKGROUND_CHECKER: result observer panicked: %v", r)
+			}
+		}()
+		fn(context.Background(), result)
+	}()
 }
 
 // GetCachedResults returns the cached check results

@@ -589,3 +589,33 @@ func (m *bgCheckerMockStorage) DeleteHistoryBefore(ctx context.Context, before t
 func (m *bgCheckerMockStorage) QueryUpdateOperations(ctx context.Context, opts storage.OperationQueryOptions) (storage.OperationQueryResult, error) {
 	return storage.OperationQueryResult{}, nil
 }
+
+func TestBackgroundChecker_ResultObserver(t *testing.T) {
+	bc := NewBackgroundChecker(nil, nil, nil, nil, time.Minute)
+	bc.notifyObserver(&DiscoveryResult{}) // no observer: no-op
+
+	got := make(chan *DiscoveryResult, 1)
+	release := make(chan struct{})
+	bc.SetResultObserver(func(ctx context.Context, r *DiscoveryResult) {
+		<-release
+		got <- r
+	})
+	want := &DiscoveryResult{TotalChecked: 3}
+	bc.notifyObserver(want) // must not block on the observer
+	close(release)
+	select {
+	case r := <-got:
+		assert.Same(t, want, r)
+	case <-time.After(2 * time.Second):
+		t.Fatal("observer not called")
+	}
+
+	done := make(chan struct{})
+	bc.SetResultObserver(func(ctx context.Context, r *DiscoveryResult) {
+		close(done)
+		panic("boom")
+	})
+	bc.notifyObserver(want) // a panicking observer must not crash the process
+	<-done
+	time.Sleep(20 * time.Millisecond)
+}

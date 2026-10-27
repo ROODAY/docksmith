@@ -15,6 +15,7 @@ import (
 	"github.com/chis/docksmith/internal/config"
 	"github.com/chis/docksmith/internal/docker"
 	"github.com/chis/docksmith/internal/events"
+	"github.com/chis/docksmith/internal/notify"
 	"github.com/chis/docksmith/internal/registry"
 	"github.com/chis/docksmith/internal/scripts"
 	"github.com/chis/docksmith/internal/storage"
@@ -36,6 +37,10 @@ type Server struct {
 	checkInterval         time.Duration
 	cacheTTL              time.Duration
 	rateLimiter           *PathRateLimiter
+	notifyStore           storage.NotifyStore // nil when storage lacks notification support
+	notifier              *notify.Notifier    // nil when notifyStore is nil
+	notifyCtx             context.Context
+	notifyCancel          context.CancelFunc
 }
 
 // Config holds configuration for the API server
@@ -131,6 +136,17 @@ func NewServer(cfg Config) *Server {
 	// The internal rate limiter was blocking normal usage with many containers.
 	var rateLimiter *PathRateLimiter
 
+	// Notifications require storage that implements storage.NotifyStore.
+	var notifyStore storage.NotifyStore
+	var notifier *notify.Notifier
+	if ns, ok := cfg.StorageService.(storage.NotifyStore); ok {
+		notifyStore = ns
+		notifier = notify.New(ns, cfg.StorageService, cfg.StorageService, eventBus, notify.ShoutrrrSender{},
+			resolveHostname(cfg.DockerService), checkInterval)
+		backgroundChecker.SetResultObserver(notifier.OnCheckResult)
+	}
+	notifyCtx, notifyCancel := context.WithCancel(context.Background())
+
 	s := &Server{
 		dockerService:         cfg.DockerService,
 		registryManager:       cfg.RegistryManager,
@@ -144,6 +160,10 @@ func NewServer(cfg Config) *Server {
 		checkInterval:         checkInterval,
 		cacheTTL:              cacheTTL,
 		rateLimiter:           rateLimiter,
+		notifyStore:           notifyStore,
+		notifier:              notifier,
+		notifyCtx:             notifyCtx,
+		notifyCancel:          notifyCancel,
 	}
 
 	// Setup HTTP server with middleware chain
@@ -278,6 +298,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux, staticDir string) {
 
 // Start starts the HTTP server
 func (s *Server) Start() error {
+	// Start the notifier before the background checker delivers results
+	if s.notifier != nil {
+		s.notifier.Start(s.notifyCtx)
+	}
+
 	// Start background checker
 	if s.backgroundChecker != nil {
 		s.backgroundChecker.Start()
@@ -296,12 +321,36 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.backgroundChecker.Stop()
 	}
 
+	// Stop the notifier's dispatcher, scheduler and operation watcher
+	if s.notifyCancel != nil {
+		s.notifyCancel()
+	}
+
 	// Stop rate limiter cleanup goroutines
 	if s.rateLimiter != nil {
 		s.rateLimiter.Stop()
 	}
 
 	return s.httpServer.Shutdown(ctx)
+}
+
+// resolveHostname returns the Docker host's name, falling back to the local
+// hostname. The Docker query is bounded so it cannot stall startup.
+func resolveHostname(ds *docker.Service) string {
+	if ds != nil {
+		if cli := ds.GetClient(); cli != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			info, err := cli.Info(ctx)
+			cancel()
+			if err == nil && info.Name != "" {
+				return info.Name
+			}
+		}
+	}
+	if h, err := os.Hostname(); err == nil {
+		return h
+	}
+	return ""
 }
 
 // corsMiddleware adds CORS headers for development.
