@@ -486,13 +486,12 @@ export type EventKind =
   | 'check_failing'
   | 'compose_mismatch';
 
-export type NotifyTiming = 'immediate' | 'summary';
+export type NotifyTiming = 'off' | 'immediate' | 'summary';
 
 export interface NotifySettings {
   server_name: string;
   base_url: string;
   min_level: string;
-  notify_digest: boolean;
   summary_cron: string;
   timing: Record<EventKind, NotifyTiming>;
 }
@@ -515,9 +514,7 @@ export interface NotifyService {
   id: number;
   name: string;
   type: string;
-  delivery: NotifyTiming;
   enabled: boolean;
-  events: EventKind[];
   config: Record<string, string>;
   last_success_at?: string;
   last_error_at?: string;
@@ -528,8 +525,6 @@ export interface NotifyService {
 export interface NotifyServiceInput {
   name: string;
   type: string;
-  delivery: NotifyTiming;
   enabled: boolean;
-  events: EventKind[];
   config: Record<string, string>;
 }

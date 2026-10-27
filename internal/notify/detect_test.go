@@ -149,7 +149,7 @@ func TestDetect(t *testing.T) {
 func TestDetectDigestSettings(t *testing.T) {
 	now := time.Now()
 	on := DefaultSettings("h")
-	on.NotifyDigest = true
+	on.Timing[EventDigestChanged] = TimingSummary
 	sn := latestSnapForTest(nil)
 	if evs, _ := Detect(nil, []Snapshot{sn}, on, now); len(evs) != 1 || evs[0].Kind != EventDigestChanged {
 		t.Fatalf("global on: got %v", evs)

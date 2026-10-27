@@ -33,8 +33,6 @@ const EVENT_KINDS: { kind: EventKind; label: string }[] = [
   { kind: 'compose_mismatch', label: 'Compose mismatch' },
 ];
 
-const DEFAULT_EVENTS: EventKind[] = EVENT_KINDS.map(e => e.kind).filter(k => k !== 'digest_changed');
-
 const MIN_LEVELS = ['major', 'minor', 'patch', 'build'];
 
 interface FieldDef {
@@ -97,7 +95,7 @@ const SERVICE_TYPES: { type: string; label: string; fields: FieldDef[] }[] = [
 ];
 
 function emptyForm(): NotifyServiceInput {
-  return { name: '', type: 'smtp', delivery: 'immediate', enabled: true, events: [...DEFAULT_EVENTS], config: {} };
+  return { name: '', type: 'smtp', enabled: true, config: {} };
 }
 
 function formatNextFire(iso: string): string {
@@ -236,9 +234,7 @@ export function NotificationSettings() {
     setForm({
       name: svc.name,
       type: svc.type,
-      delivery: svc.delivery,
       enabled: svc.enabled,
-      events: [...svc.events],
       config: { ...svc.config },
     });
     setFormError(null);
@@ -257,14 +253,6 @@ export function NotificationSettings() {
 
   const setConfigField = (key: string, value: string) => {
     setForm(f => (f ? { ...f, config: { ...f.config, [key]: value } } : f));
-  };
-
-  const toggleEvent = (kind: EventKind) => {
-    setForm(f => {
-      if (!f) return f;
-      const events = f.events.includes(kind) ? f.events.filter(e => e !== kind) : [...f.events, kind];
-      return { ...f, events };
-    });
   };
 
   const submitForm = async () => {
@@ -308,9 +296,7 @@ export function NotificationSettings() {
       const res = await updateNotifyService(svc.id, {
         name: svc.name,
         type: svc.type,
-        delivery: svc.delivery,
         enabled: !svc.enabled,
-        events: svc.events,
         config: svc.config, // masked secrets are preserved server-side
       });
       if (res.success) {
@@ -435,15 +421,6 @@ export function NotificationSettings() {
             </select>
           </div>
           <div className="setting-row">
-            <label htmlFor="notify-digest" className="setting-label">Notify on digest changes</label>
-            <input
-              id="notify-digest"
-              type="checkbox"
-              checked={draft.notify_digest}
-              onChange={(e) => updateDraft({ notify_digest: e.target.checked })}
-            />
-          </div>
-          <div className="setting-row">
             <label htmlFor="notify-cron" className="setting-label">Summary schedule (cron)</label>
             <input
               id="notify-cron"
@@ -477,20 +454,32 @@ export function NotificationSettings() {
             </div>
           )}
 
+          <h3 className="notify-subtitle">Events</h3>
+          <div className="setting-info">
+            <i className="fa-solid fa-circle-info"></i>
+            Every enabled service receives these events. Immediate events are sent right away; summary events are
+            collected and sent together on the schedule above.
+          </div>
           {EVENT_KINDS.map(({ kind, label }) => (
             <div className="setting-row" key={kind}>
               <label htmlFor={`notify-timing-${kind}`} className="setting-label">{label}</label>
               <select
                 id={`notify-timing-${kind}`}
                 className="retention-select"
-                value={draft.timing[kind]}
+                value={draft.timing[kind] ?? 'off'}
                 onChange={(e) => setTiming(kind, e.target.value as NotifyTiming)}
               >
+                <option value="off">Off</option>
                 <option value="immediate">Immediate</option>
                 <option value="summary">In summary</option>
               </select>
             </div>
           ))}
+          <div className="setting-info">
+            <i className="fa-solid fa-circle-info"></i>
+            Digest changes apply to containers without version tags (e.g. :latest). A container can opt in with the
+            docksmith.notify-digest=true label even when this is Off.
+          </div>
 
           <button className="settings-btn" onClick={saveSettings} disabled={!canSaveSettings}>
             <i className="fa-solid fa-floppy-disk"></i>
@@ -530,8 +519,6 @@ export function NotificationSettings() {
                     <div className="setting-label">{svc.name}</div>
                     <div className="setting-value notify-service-meta">
                       {SERVICE_TYPES.find(t => t.type === svc.type)?.label ?? svc.type}
-                      {' · '}
-                      {svc.delivery === 'immediate' ? 'Immediate' : 'Summary'}
                     </div>
                   </div>
                   <label className="notify-toggle">
@@ -646,18 +633,6 @@ export function NotificationSettings() {
                   </div>
                 )}
                 <div className="setting-row">
-                  <label htmlFor="svc-delivery" className="setting-label">Delivery</label>
-                  <select
-                    id="svc-delivery"
-                    className="retention-select"
-                    value={form.delivery}
-                    onChange={(e) => setForm({ ...form, delivery: e.target.value as NotifyTiming })}
-                  >
-                    <option value="immediate">Immediate</option>
-                    <option value="summary">Summary</option>
-                  </select>
-                </div>
-                <div className="setting-row">
                   <label htmlFor="svc-enabled" className="setting-label">Enabled</label>
                   <input
                     id="svc-enabled"
@@ -666,19 +641,6 @@ export function NotificationSettings() {
                     onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
                   />
                 </div>
-                <fieldset className="notify-events">
-                  <legend className="setting-label">Events</legend>
-                  {EVENT_KINDS.map(({ kind, label }) => (
-                    <label key={kind} className="notify-event">
-                      <input
-                        type="checkbox"
-                        checked={form.events.includes(kind)}
-                        onChange={() => toggleEvent(kind)}
-                      />
-                      <span>{label}</span>
-                    </label>
-                  ))}
-                </fieldset>
                 {formError && (
                   <div className="setting-info setting-info-error">
                     <i className="fa-solid fa-circle-exclamation"></i>

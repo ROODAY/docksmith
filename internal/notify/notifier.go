@@ -267,8 +267,8 @@ func (n *Notifier) validate(s *Settings) error {
 		if !known[k] {
 			return fmt.Errorf("unknown event kind %q", k)
 		}
-		if v != TimingImmediate && v != TimingSummary {
-			return fmt.Errorf("invalid timing %q for %s: must be %q or %q", v, k, TimingImmediate, TimingSummary)
+		if v != TimingOff && v != TimingImmediate && v != TimingSummary {
+			return fmt.Errorf("invalid timing %q for %s: must be %q, %q or %q", v, k, TimingOff, TimingImmediate, TimingSummary)
 		}
 	}
 	return nil

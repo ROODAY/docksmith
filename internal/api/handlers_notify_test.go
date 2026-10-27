@@ -98,7 +98,7 @@ func TestNotifyValidateCron(t *testing.T) {
 
 func TestNotifyServices_MaskedRoundTrip(t *testing.T) {
 	e := newNotifyTestEnv(t)
-	create := `{"name":"mail","type":"smtp","delivery":"immediate","enabled":true,"events":["new_version"],
+	create := `{"name":"mail","type":"smtp","enabled":true,
 		"config":{"host":"smtp.a.test","from":"a@a.test","to":"b@a.test","password":"hunter2"}}`
 	code, body := e.do("POST", "/api/notifications/services", create)
 	if code != 200 {
@@ -118,7 +118,7 @@ func TestNotifyServices_MaskedRoundTrip(t *testing.T) {
 	}
 	id := rows[0].ID
 
-	put := `{"name":"mail","type":"smtp","delivery":"summary","enabled":true,"events":["new_version"],
+	put := `{"name":"mail","type":"smtp","enabled":true,
 		"config":{"host":"smtp.b.test","from":"a@a.test","to":"b@a.test","password":"********"}}`
 	code, body = e.do("PUT", "/api/notifications/services/"+strconv.FormatInt(id, 10), put)
 	if code != 200 {
@@ -143,21 +143,26 @@ func TestNotifyServices_MaskedRoundTrip(t *testing.T) {
 	}
 }
 
-func TestNotifyServices_RejectsUnknownEvent(t *testing.T) {
+func TestNotifySettings_EventTimingValues(t *testing.T) {
 	e := newNotifyTestEnv(t)
-	body := `{"name":"n","type":"ntfy","delivery":"immediate","enabled":true,"events":["bogus"],"config":{"topic":"t"}}`
-	if code, resp := e.do("POST", "/api/notifications/services", body); code != http.StatusBadRequest {
+	settings := func(timing string) string {
+		return `{"server_name":"h","min_level":"patch","summary_cron":"0 8 * * *","timing":` + timing + `}`
+	}
+	if code, resp := e.do("PUT", "/api/notifications/settings", settings(`{"new_version":"weekly"}`)); code != http.StatusBadRequest {
+		t.Errorf("bad timing: %d %s", code, resp)
+	}
+	if code, resp := e.do("PUT", "/api/notifications/settings", settings(`{"bogus":"off"}`)); code != http.StatusBadRequest {
 		t.Errorf("unknown event: %d %s", code, resp)
 	}
-	bad := `{"name":"n","type":"ntfy","delivery":"weekly","enabled":true,"events":[],"config":{"topic":"t"}}`
-	if code, resp := e.do("POST", "/api/notifications/services", bad); code != http.StatusBadRequest {
-		t.Errorf("bad delivery: %d %s", code, resp)
+	code, resp := e.do("PUT", "/api/notifications/settings", settings(`{"compose_mismatch":"off"}`))
+	if code != http.StatusOK || !strings.Contains(resp, `"compose_mismatch": "off"`) {
+		t.Errorf("off timing: %d %s", code, resp)
 	}
 }
 
 func TestNotifyServices_UnknownAndInvalidID(t *testing.T) {
 	e := newNotifyTestEnv(t)
-	body := `{"name":"n","type":"ntfy","delivery":"immediate","enabled":true,"events":[],"config":{"topic":"t"}}`
+	body := `{"name":"n","type":"ntfy","enabled":true,"config":{"topic":"t"}}`
 	if code, _ := e.do("PUT", "/api/notifications/services/999", body); code != http.StatusNotFound {
 		t.Errorf("PUT unknown = %d, want 404", code)
 	}
@@ -184,13 +189,13 @@ func TestNotify_UnavailableWithoutNotifier(t *testing.T) {
 func TestNotifyServices_CreateNeverStoresMask(t *testing.T) {
 	e := newNotifyTestEnv(t)
 	code, body := e.do("POST", "/api/notifications/services",
-		`{"name":"hook","type":"webhook","delivery":"immediate","enabled":true,"events":["new_version"],"config":{"url":"********"}}`)
+		`{"name":"hook","type":"webhook","enabled":true,"config":{"url":"********"}}`)
 	if code != http.StatusBadRequest || !strings.Contains(body, "missing required fields: url") {
 		t.Fatalf("POST masked required secret = %d %s, want 400 missing url", code, body)
 	}
 
 	code, body = e.do("POST", "/api/notifications/services",
-		`{"name":"mail","type":"smtp","delivery":"immediate","enabled":true,"events":["new_version"],
+		`{"name":"mail","type":"smtp","enabled":true,
 		"config":{"host":"smtp.a.test","from":"a@a.test","to":"b@a.test","password":"********"}}`)
 	if code != 200 {
 		t.Fatalf("POST = %d %s", code, body)
@@ -207,7 +212,7 @@ func TestNotifyServices_CreateNeverStoresMask(t *testing.T) {
 func TestNotifyServices_TypeChangeDropsMaskedValues(t *testing.T) {
 	e := newNotifyTestEnv(t)
 	code, body := e.do("POST", "/api/notifications/services",
-		`{"name":"mail","type":"smtp","delivery":"immediate","enabled":true,"events":["new_version"],
+		`{"name":"mail","type":"smtp","enabled":true,
 		"config":{"host":"smtp.a.test","from":"a@a.test","to":"b@a.test","password":"hunter2"}}`)
 	if code != 200 {
 		t.Fatalf("POST = %d %s", code, body)
@@ -217,7 +222,7 @@ func TestNotifyServices_TypeChangeDropsMaskedValues(t *testing.T) {
 
 	// The UI resubmits the masked smtp fields alongside the new ntfy ones.
 	code, body = e.do("PUT", "/api/notifications/services/"+id,
-		`{"name":"mail","type":"ntfy","delivery":"immediate","enabled":true,"events":["new_version"],
+		`{"name":"mail","type":"ntfy","enabled":true,
 		"config":{"topic":"t","password":"********","smtp_password":"********","host":"ntfy.a.test"}}`)
 	if code != 200 {
 		t.Fatalf("PUT = %d %s", code, body)

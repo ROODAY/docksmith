@@ -33,13 +33,25 @@ func startNotifier(t *testing.T, st *storage.SQLiteStorage, fs Sender) (*Notifie
 	return n, bus
 }
 
+// sendNewVersionsImmediately switches new_version from the default summary
+// timing to immediate, so tests can observe sends without flushing.
+func sendNewVersionsImmediately(t *testing.T, n *Notifier) {
+	t.Helper()
+	s := n.Settings()
+	s.Timing[EventNewVersion] = TimingImmediate
+	if err := n.UpdateSettings(context.Background(), s); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+}
+
 func TestNotifier_SeedsSilentlyThenNotifies(t *testing.T) {
 	st := newDispatchStore(t)
-	addService(t, st, "imm", "immediate", true, EventNewVersion)
+	addService(t, st, "imm", true)
 	fs := &fakeSender{}
 	ctx := context.Background()
 
 	n, _ := startNotifier(t, st, fs)
+	sendNewVersionsImmediately(t, n)
 	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", nil), 1)
 	time.Sleep(100 * time.Millisecond)
 	if got := fs.total(); got != 0 {
@@ -66,7 +78,7 @@ func TestNotifier_SeedsSilentlyThenNotifies(t *testing.T) {
 
 func TestNotifier_DropsPendingForRemovedContainers(t *testing.T) {
 	st := newDispatchStore(t)
-	sid := addService(t, st, "sum", "summary", true, EventNewVersion)
+	sid := addService(t, st, "sum", true)
 	n, _ := startNotifier(t, st, &fakeSender{})
 	ctx := context.Background()
 	t0 := time.Now()
@@ -119,7 +131,7 @@ func TestNotifier_SummaryKeepsItemsForBrieflyMissingContainer(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := newDispatchStore(t)
-			addService(t, st, "sum", "summary", true, EventNewVersion)
+			addService(t, st, "sum", true)
 			fs := &fakeSender{}
 			n, _ := startNotifier(t, st, fs)
 			ctx := context.Background()
@@ -145,9 +157,10 @@ func otherContainerResult() *update.DiscoveryResult {
 
 func TestNotifier_RecreatedContainerNotReannounced(t *testing.T) {
 	st := newDispatchStore(t)
-	addService(t, st, "imm", "immediate", true, EventNewVersion)
+	addService(t, st, "imm", true)
 	fs := &fakeSender{}
 	n, _ := startNotifier(t, st, fs)
+	sendNewVersionsImmediately(t, n)
 	ctx := context.Background()
 
 	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.0", nil), 1) // seed
@@ -163,7 +176,7 @@ func TestNotifier_RecreatedContainerNotReannounced(t *testing.T) {
 
 func TestNotifier_CurrentVersionsAndMutedOperations(t *testing.T) {
 	st := newDispatchStore(t)
-	addService(t, st, "imm", "immediate", true, EventUpdateFailed)
+	addService(t, st, "imm", true)
 	fs := &fakeSender{}
 	n, _ := startNotifier(t, st, fs)
 	ctx := context.Background()
@@ -246,7 +259,7 @@ func TestNotifier_UpdateSettings(t *testing.T) {
 	}
 	got := n.Settings()
 	if got.MinLevel != "minor" || got.BaseURL != good.BaseURL || got.Timing[EventNewVersion] != TimingImmediate ||
-		got.Timing[EventUpdateFailed] != TimingImmediate || got.Timing[EventDigestChanged] != TimingSummary {
+		got.Timing[EventUpdateFailed] != TimingImmediate || got.Timing[EventDigestChanged] != TimingOff {
 		t.Fatalf("settings not applied/filled: %+v", got)
 	}
 	got.Timing[EventNewVersion] = TimingSummary
@@ -264,9 +277,10 @@ func TestNotifier_UpdateSettings(t *testing.T) {
 
 func TestNotifier_IgnoresOutOfOrderResults(t *testing.T) {
 	st := newDispatchStore(t)
-	addService(t, st, "imm", "immediate", true, EventNewVersion)
+	addService(t, st, "imm", true)
 	fs := &fakeSender{}
 	n, _ := startNotifier(t, st, fs)
+	sendNewVersionsImmediately(t, n)
 	ctx := context.Background()
 
 	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.0", nil), 1) // seed
@@ -285,7 +299,7 @@ func TestNotifier_IgnoresOutOfOrderResults(t *testing.T) {
 
 func TestNotifier_EmptyFirstResultDoesNotSeed(t *testing.T) {
 	st := newDispatchStore(t)
-	addService(t, st, "imm", "immediate", true, EventNewVersion)
+	addService(t, st, "imm", true)
 	fs := &fakeSender{}
 	n, _ := startNotifier(t, st, fs)
 	ctx := context.Background()

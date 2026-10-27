@@ -16,12 +16,10 @@ const nextSummaryCount = 3
 
 // notifyServiceRequest is the body of POST/PUT /api/notifications/services.
 type notifyServiceRequest struct {
-	Name     string            `json:"name"`
-	Type     string            `json:"type"`
-	Delivery string            `json:"delivery"`
-	Enabled  bool              `json:"enabled"`
-	Events   []string          `json:"events"`
-	Config   map[string]string `json:"config"`
+	Name    string            `json:"name"`
+	Type    string            `json:"type"`
+	Enabled bool              `json:"enabled"`
+	Config  map[string]string `json:"config"`
 }
 
 // notifyServiceResponse is a service as returned to clients; Config is always masked.
@@ -29,9 +27,7 @@ type notifyServiceResponse struct {
 	ID            int64             `json:"id"`
 	Name          string            `json:"name"`
 	Type          string            `json:"type"`
-	Delivery      string            `json:"delivery"`
 	Enabled       bool              `json:"enabled"`
-	Events        []string          `json:"events"`
 	Config        map[string]string `json:"config"`
 	LastSuccessAt *time.Time        `json:"last_success_at,omitempty"`
 	LastErrorAt   *time.Time        `json:"last_error_at,omitempty"`
@@ -40,13 +36,8 @@ type notifyServiceResponse struct {
 }
 
 func toNotifyServiceResponse(row storage.NotifyServiceRow) notifyServiceResponse {
-	events := row.Events
-	if events == nil {
-		events = []string{}
-	}
 	return notifyServiceResponse{
-		ID: row.ID, Name: row.Name, Type: row.Type, Delivery: row.Delivery,
-		Enabled: row.Enabled, Events: events,
+		ID: row.ID, Name: row.Name, Type: row.Type, Enabled: row.Enabled,
 		Config:        notify.MaskConfig(row.Type, row.Config),
 		LastSuccessAt: row.LastSuccessAt, LastErrorAt: row.LastErrorAt,
 		LastSummaryAt: row.LastSummaryAt, LastError: row.LastError,
@@ -155,18 +146,6 @@ func validateNotifyServiceRequest(req *notifyServiceRequest) error {
 	if req.Name == "" {
 		return errors.New("name is required")
 	}
-	if req.Delivery != string(notify.TimingImmediate) && req.Delivery != string(notify.TimingSummary) {
-		return fmt.Errorf("delivery must be %q or %q", notify.TimingImmediate, notify.TimingSummary)
-	}
-	known := make(map[string]bool, len(notify.AllEventKinds))
-	for _, k := range notify.AllEventKinds {
-		known[string(k)] = true
-	}
-	for _, e := range req.Events {
-		if !known[e] {
-			return fmt.Errorf("unknown event %q", e)
-		}
-	}
 	return nil
 }
 
@@ -190,8 +169,7 @@ func (s *Server) handleNotifyServiceCreate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	row := storage.NotifyServiceRow{
-		Name: req.Name, Type: req.Type, Delivery: req.Delivery,
-		Enabled: req.Enabled, Events: req.Events, Config: req.Config,
+		Name: req.Name, Type: req.Type, Enabled: req.Enabled, Config: req.Config,
 	}
 	id, err := s.notifyStore.SaveNotifyService(r.Context(), row)
 	if err != nil {
@@ -246,8 +224,7 @@ func (s *Server) handleNotifyServiceUpdate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	row := stored
-	row.Name, row.Type, row.Delivery = req.Name, req.Type, req.Delivery
-	row.Enabled, row.Events, row.Config = req.Enabled, req.Events, merged
+	row.Name, row.Type, row.Enabled, row.Config = req.Name, req.Type, req.Enabled, merged
 	if _, err := s.notifyStore.SaveNotifyService(r.Context(), row); err != nil {
 		RespondInternalError(w, errors.New("save notification service failed"))
 		return

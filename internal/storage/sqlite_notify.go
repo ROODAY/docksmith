@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const notifyServiceColumns = `id, name, type, enabled, delivery, events, config,
+const notifyServiceColumns = `id, name, type, enabled, config,
 	last_success_at, last_error, last_error_at, last_summary_at`
 
 type rowScanner interface {
@@ -19,16 +19,13 @@ type rowScanner interface {
 func scanNotifyService(sc rowScanner) (NotifyServiceRow, error) {
 	var r NotifyServiceRow
 	var enabled int
-	var events, config string
+	var config string
 	var succ, errAt, sumAt sql.NullTime
-	if err := sc.Scan(&r.ID, &r.Name, &r.Type, &enabled, &r.Delivery, &events, &config,
+	if err := sc.Scan(&r.ID, &r.Name, &r.Type, &enabled, &config,
 		&succ, &r.LastError, &errAt, &sumAt); err != nil {
 		return r, err
 	}
 	r.Enabled = enabled != 0
-	if err := json.Unmarshal([]byte(events), &r.Events); err != nil {
-		return r, fmt.Errorf("invalid events JSON: %w", err)
-	}
 	if err := json.Unmarshal([]byte(config), &r.Config); err != nil {
 		return r, fmt.Errorf("invalid config JSON: %w", err)
 	}
@@ -95,17 +92,9 @@ func (s *SQLiteStorage) GetNotifyService(ctx context.Context, id int64) (NotifyS
 
 // SaveNotifyService implements NotifyStore. Inserts when row.ID == 0, else updates.
 func (s *SQLiteStorage) SaveNotifyService(ctx context.Context, row NotifyServiceRow) (int64, error) {
-	events := row.Events
-	if events == nil {
-		events = []string{}
-	}
 	config := row.Config
 	if config == nil {
 		config = map[string]string{}
-	}
-	eventsJSON, err := json.Marshal(events)
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal events: %w", err)
 	}
 	configJSON, err := json.Marshal(config)
 	if err != nil {
@@ -116,9 +105,9 @@ func (s *SQLiteStorage) SaveNotifyService(ctx context.Context, row NotifyService
 	err = s.retryWithBackoff(ctx, func() error {
 		if row.ID == 0 {
 			res, err := s.db.ExecContext(ctx, `
-				INSERT INTO notify_services (name, type, enabled, delivery, events, config)
-				VALUES (?, ?, ?, ?, ?, ?)`,
-				row.Name, row.Type, boolInt(row.Enabled), row.Delivery, string(eventsJSON), string(configJSON))
+				INSERT INTO notify_services (name, type, enabled, config)
+				VALUES (?, ?, ?, ?)`,
+				row.Name, row.Type, boolInt(row.Enabled), string(configJSON))
 			if err != nil {
 				return err
 			}
@@ -127,10 +116,10 @@ func (s *SQLiteStorage) SaveNotifyService(ctx context.Context, row NotifyService
 		}
 		res, err := s.db.ExecContext(ctx, `
 			UPDATE notify_services
-			SET name = ?, type = ?, enabled = ?, delivery = ?, events = ?, config = ?,
+			SET name = ?, type = ?, enabled = ?, config = ?,
 				updated_at = CURRENT_TIMESTAMP
 			WHERE id = ?`,
-			row.Name, row.Type, boolInt(row.Enabled), row.Delivery, string(eventsJSON), string(configJSON), row.ID)
+			row.Name, row.Type, boolInt(row.Enabled), string(configJSON), row.ID)
 		if err != nil {
 			return err
 		}

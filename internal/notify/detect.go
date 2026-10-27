@@ -173,5 +173,5 @@ func digestEnabled(labels map[string]string, s Settings) bool {
 	case "false":
 		return false
 	}
-	return s.NotifyDigest
+	return s.Timing[EventDigestChanged] != TimingOff
 }

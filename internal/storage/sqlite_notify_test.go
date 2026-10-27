@@ -24,8 +24,7 @@ func TestNotifyServices_CRUD(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := s.SaveNotifyService(ctx, NotifyServiceRow{
-		Name: "tg", Type: "telegram", Delivery: "immediate", Enabled: true,
-		Events: []string{"update_available"}, Config: map[string]string{"token": "x"},
+		Name: "tg", Type: "telegram", Enabled: true, Config: map[string]string{"token": "x"},
 	})
 	if err != nil || id == 0 {
 		t.Fatalf("insert: id=%d err=%v", id, err)
@@ -35,7 +34,7 @@ func TestNotifyServices_CRUD(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("get: ok=%v err=%v", ok, err)
 	}
-	if got.Name != "tg" || !got.Enabled || got.Config["token"] != "x" || len(got.Events) != 1 || got.LastSuccessAt != nil {
+	if got.Name != "tg" || !got.Enabled || got.Config["token"] != "x" || got.LastSuccessAt != nil {
 		t.Fatalf("unexpected row: %+v", got)
 	}
 
@@ -91,7 +90,7 @@ func TestNotifyServices_CRUD(t *testing.T) {
 func TestNotifyPending_UpsertReplacesByDedupKey(t *testing.T) {
 	s, _ := newNotifyTestStorage(t)
 	ctx := context.Background()
-	id, err := s.SaveNotifyService(ctx, NotifyServiceRow{Name: "a", Type: "x", Delivery: "digest"})
+	id, err := s.SaveNotifyService(ctx, NotifyServiceRow{Name: "a", Type: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +168,7 @@ func TestNotifyContainerStates_ReplaceDropsMissing(t *testing.T) {
 func TestNotifyPending_SurvivesReopen(t *testing.T) {
 	s, dbPath := newNotifyTestStorage(t)
 	ctx := context.Background()
-	id, err := s.SaveNotifyService(ctx, NotifyServiceRow{Name: "a", Type: "x", Delivery: "digest"})
+	id, err := s.SaveNotifyService(ctx, NotifyServiceRow{Name: "a", Type: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +196,7 @@ func TestNotifyPending_SurvivesReopen(t *testing.T) {
 func TestNotifyPending_DeleteIfUnchanged(t *testing.T) {
 	s, _ := newNotifyTestStorage(t)
 	ctx := context.Background()
-	id, err := s.SaveNotifyService(ctx, NotifyServiceRow{Name: "a", Type: "x", Delivery: "summary"})
+	id, err := s.SaveNotifyService(ctx, NotifyServiceRow{Name: "a", Type: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}

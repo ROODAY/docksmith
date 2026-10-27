@@ -14,10 +14,9 @@ import (
 )
 
 const (
-	deliveryImmediate = "immediate"
-	workQueueSize     = 64
-	workerCount       = 2
-	recordTimeout     = 10 * time.Second
+	workQueueSize = 64
+	workerCount   = 2
+	recordTimeout = 10 * time.Second
 )
 
 // Send policy: each attempt is bounded by sendTimeout; failed attempts are
@@ -80,15 +79,28 @@ func (d *Dispatcher) worker(ctx context.Context) {
 	}
 }
 
-// Dispatch routes evs to every enabled service subscribed to their kinds. It
-// never blocks on sending: pending rows are written synchronously, and
-// immediate messages are queued (or dropped with a log line if the queue is
-// full or the dispatcher has shut down).
+// Dispatch routes evs to every enabled service by each kind's global timing:
+// off kinds are dropped, immediate kinds are sent now, summary kinds are stored
+// as pending. It never blocks on sending: pending rows are written
+// synchronously, and immediate messages are queued (or dropped with a log line
+// if the queue is full or the dispatcher has shut down).
 func (d *Dispatcher) Dispatch(ctx context.Context, evs []Event) {
 	if len(evs) == 0 {
 		return
 	}
 	s := d.settings()
+	var now, later []Event
+	for _, e := range evs {
+		switch eventTiming(s, e.Kind) {
+		case TimingImmediate:
+			now = append(now, e)
+		case TimingSummary:
+			later = append(later, e)
+		}
+	}
+	if len(now) == 0 && len(later) == 0 {
+		return
+	}
 	svcs, err := d.store.ListNotifyServices(ctx)
 	if err != nil {
 		log.Printf("notify: list services: %v", err)
@@ -98,25 +110,24 @@ func (d *Dispatcher) Dispatch(ctx context.Context, evs []Event) {
 		if !svc.Enabled {
 			continue
 		}
-		want := make(map[EventKind]bool, len(svc.Events))
-		for _, k := range svc.Events {
-			want[EventKind(k)] = true
-		}
-		var now []Event
-		for _, e := range evs {
-			if !want[e.Kind] {
-				continue
-			}
-			if svc.Delivery == deliveryImmediate || s.Timing[e.Kind] == TimingImmediate {
-				now = append(now, e)
-				continue
-			}
+		for _, e := range later {
 			d.storePending(ctx, svc, e)
 		}
 		if len(now) > 0 {
 			d.enqueue(sendJob{svc: svc, msg: Render(s, now, false)})
 		}
 	}
+}
+
+// eventTiming is the timing for kind. Digest changes only reach Dispatch when
+// enabled globally or by a container's docksmith.notify-digest=true label, so
+// with the global setting off they go into the summary.
+func eventTiming(s Settings, kind EventKind) Timing {
+	t := s.Timing[kind]
+	if kind == EventDigestChanged && t == TimingOff {
+		return TimingSummary
+	}
+	return t
 }
 
 func (d *Dispatcher) storePending(ctx context.Context, svc storage.NotifyServiceRow, e Event) {

@@ -15,9 +15,8 @@ const (
 // NotifyServiceRow is a configured notification service.
 type NotifyServiceRow struct {
 	ID                                         int64
-	Name, Type, Delivery                       string
+	Name, Type                                 string
 	Enabled                                    bool
-	Events                                     []string
 	Config                                     map[string]string
 	LastSuccessAt, LastErrorAt, LastSummaryAt *time.Time
 	LastError                                  string

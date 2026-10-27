@@ -132,12 +132,12 @@ Return `503` when notification support is unavailable. Secret values (passwords,
 | PUT | `/api/notifications/settings` | Update settings; `400` with the validation message (nothing saved) when invalid |
 | POST | `/api/notifications/validate-cron` | Body `{"cron": "..."}`; returns `{valid, error, next}` (3 upcoming fire times) |
 | GET | `/api/notifications/services` | List services (config secrets masked) |
-| POST | `/api/notifications/services` | Create a service: `{name, type, delivery, enabled, events, config}` |
+| POST | `/api/notifications/services` | Create a service: `{name, type, enabled, config}` |
 | PUT | `/api/notifications/services/{id}` | Update a service; `404` if unknown |
 | DELETE | `/api/notifications/services/{id}` | Delete a service; `404` if unknown |
 | POST | `/api/notifications/services/{id}/test` | Send a test message; `400` with the (redacted) error on failure |
 
-`delivery` is `immediate` or `summary`; `events` must be a subset of `new_version`, `digest_changed`, `update_succeeded`, `update_failed`, `rollback`, `update_blocked`, `check_failing`, `compose_mismatch`.
+Every enabled service receives the same events. Each event kind's `timing` in the settings is `off`, `immediate` or `summary` (kinds: `new_version`, `digest_changed`, `update_succeeded`, `update_failed`, `rollback`, `update_blocked`, `check_failing`, `compose_mismatch`); summary events are sent together on `summary_cron`.
 
 ---
 

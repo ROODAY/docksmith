@@ -18,15 +18,18 @@ func TestLoadSettings_Defaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.MinLevel != "patch" || s.NotifyDigest || s.SummaryCron != "0 8 * * *" || s.ServerName != "host1" {
+	if s.MinLevel != "patch" || s.SummaryCron != "0 8 * * *" || s.ServerName != "host1" {
 		t.Errorf("bad defaults: %+v", s)
+	}
+	if s.Timing[EventDigestChanged] != TimingOff {
+		t.Errorf("digest_changed = %s, want off", s.Timing[EventDigestChanged])
 	}
 	for _, k := range []EventKind{EventUpdateFailed, EventRollback, EventUpdateBlocked, EventCheckFailing} {
 		if s.Timing[k] != TimingImmediate {
 			t.Errorf("%s = %s, want immediate", k, s.Timing[k])
 		}
 	}
-	for _, k := range []EventKind{EventNewVersion, EventDigestChanged, EventUpdateSucceeded, EventComposeMismatch} {
+	for _, k := range []EventKind{EventNewVersion, EventUpdateSucceeded, EventComposeMismatch} {
 		if s.Timing[k] != TimingSummary {
 			t.Errorf("%s = %s, want summary", k, s.Timing[k])
 		}
@@ -45,7 +48,7 @@ func TestSettings_RoundTripFillsMissingTiming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.MinLevel != "major" || got.Timing[EventNewVersion] != TimingImmediate || got.Timing[EventRollback] != TimingImmediate || got.Timing[EventDigestChanged] != TimingSummary {
+	if got.MinLevel != "major" || got.Timing[EventNewVersion] != TimingImmediate || got.Timing[EventRollback] != TimingImmediate || got.Timing[EventDigestChanged] != TimingOff {
 		t.Errorf("bad merge: %+v", got)
 	}
 }

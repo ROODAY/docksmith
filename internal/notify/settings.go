@@ -8,10 +8,11 @@ import (
 	"github.com/chis/docksmith/internal/storage"
 )
 
-// Timing says when an event kind is delivered.
+// Timing says when an event kind is delivered to every enabled service.
 type Timing string
 
 const (
+	TimingOff       Timing = "off"
 	TimingImmediate Timing = "immediate"
 	TimingSummary   Timing = "summary"
 )
@@ -24,12 +25,11 @@ type ConfigStore interface {
 
 // Settings are the global notification settings.
 type Settings struct {
-	ServerName   string               `json:"server_name"`
-	BaseURL      string               `json:"base_url"`
-	MinLevel     string               `json:"min_level"`
-	NotifyDigest bool                 `json:"notify_digest"`
-	SummaryCron  string               `json:"summary_cron"`
-	Timing       map[EventKind]Timing `json:"timing"`
+	ServerName  string               `json:"server_name"`
+	BaseURL     string               `json:"base_url"`
+	MinLevel    string               `json:"min_level"`
+	SummaryCron string               `json:"summary_cron"`
+	Timing      map[EventKind]Timing `json:"timing"`
 }
 
 func defaultTiming() map[EventKind]Timing {
@@ -39,7 +39,7 @@ func defaultTiming() map[EventKind]Timing {
 		EventUpdateBlocked:   TimingImmediate,
 		EventCheckFailing:    TimingImmediate,
 		EventNewVersion:      TimingSummary,
-		EventDigestChanged:   TimingSummary,
+		EventDigestChanged:   TimingOff, // opt-in, globally or per container via docksmith.notify-digest
 		EventUpdateSucceeded: TimingSummary,
 		EventComposeMismatch: TimingSummary,
 	}
