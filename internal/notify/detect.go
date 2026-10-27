@@ -124,16 +124,25 @@ func Detect(prev map[string]storage.NotifyContainerState, snaps []Snapshot, s Se
 }
 
 // newerThanNotified reports whether target is worth a new notification given
-// the version already notified: it must be newer than last by at least minLvl.
-// This stops rebuilds (e.g. -ls205 -> -ls206) of an already-announced release
-// from re-notifying, and ignores the registry moving backwards. An empty or
-// unparseable last version imposes no restriction.
+// the version already notified: it must be newer than last by at least minLvl,
+// or older than last (the earlier notification no longer applies). This stops
+// rebuilds (e.g. -ls205 -> -ls206) of an already-announced release from
+// re-notifying without letting a pin added after a notification silence later
+// releases. An empty or unparseable last version imposes no restriction.
 func newerThanNotified(last, target string, minLvl Level) bool {
-	if last == "" || version.NewParser().ParseTag(last) == nil {
+	p := version.NewParser()
+	from := p.ParseTag(last)
+	if last == "" || from == nil {
 		return true
 	}
-	lvl, ok := Classify(last, target)
-	return ok && lvl >= minLvl
+	if lvl, ok := Classify(last, target); ok {
+		return lvl >= minLvl
+	}
+	// A target older than the last notified version means that notification no
+	// longer applies (a pin or version-max was added, or the tag was retracted),
+	// so the target is announced afresh rather than suppressed forever.
+	to := p.ParseTag(target)
+	return to != nil && version.NewComparator().GetChangeType(from, to) == version.Downgrade
 }
 
 // comparisonUnknown reports whether current and target cannot be compared as versions

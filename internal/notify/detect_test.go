@@ -275,18 +275,37 @@ func TestDetectNoRebuildSpam(t *testing.T) {
 	}
 }
 
+// A target older than the last notified version (registry moved back, or a pin
+// added after the notification) is announced once, then deduplicated as usual.
 func TestDetectRegistryMovesBackwards(t *testing.T) {
 	now := time.Now()
 	got, st := runSteps(t, DefaultSettings("h"), now,
 		[]Snapshot{snap("UPDATE_AVAILABLE", "4.0.1", "4.0.3")},
 		[]Snapshot{snap("UPDATE_AVAILABLE", "4.0.1", "4.0.2")},
-		[]Snapshot{snap("UPDATE_AVAILABLE", "4.0.1", "4.0.3")},
+		[]Snapshot{snap("UPDATE_AVAILABLE", "4.0.1", "4.0.2")},
 	)
-	if len(got[0]) != 1 || len(got[1]) != 0 || len(got[2]) != 0 {
+	if len(got[0]) != 1 || len(got[1]) != 1 || len(got[2]) != 0 {
 		t.Fatalf("got %v", got)
 	}
-	if st["web"].LastNotifiedVersion != "4.0.3" {
+	if st["web"].LastNotifiedVersion != "4.0.2" {
 		t.Fatalf("last notified = %q", st["web"].LastNotifiedVersion)
+	}
+}
+
+// Told about 5.0.0, then pinned to 4.x: later 4.x releases must still notify.
+func TestDetectPinAfterNotificationDoesNotSilence(t *testing.T) {
+	now := time.Now()
+	got, _ := runSteps(t, DefaultSettings("h"), now,
+		[]Snapshot{snap("UPDATE_AVAILABLE", "4.3.0", "5.0.0")},
+		[]Snapshot{snap("UPDATE_AVAILABLE", "4.3.0", "4.3.1")},
+		[]Snapshot{snap("UPDATE_AVAILABLE", "4.3.0", "4.3.1")},
+		[]Snapshot{snap("UPDATE_AVAILABLE", "4.3.0", "4.3.2")},
+	)
+	want := []int{1, 1, 0, 1}
+	for i, n := range want {
+		if countKind(got[i], EventNewVersion) != n {
+			t.Fatalf("step %d: got %v, want %v new_version counts", i, got, want)
+		}
 	}
 }
 
