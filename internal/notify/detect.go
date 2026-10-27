@@ -6,20 +6,25 @@ import (
 
 	"github.com/chis/docksmith/internal/scripts"
 	"github.com/chis/docksmith/internal/storage"
+	"github.com/chis/docksmith/internal/update"
 	"github.com/chis/docksmith/internal/version"
 )
 
-// Status strings mirror internal/update (kept local to avoid an import cycle).
 const (
-	statusUpdateAvailable        = "UPDATE_AVAILABLE"
-	statusUpdateAvailableBlocked = "UPDATE_AVAILABLE_BLOCKED"
-	statusCheckFailed            = "CHECK_FAILED"
-	statusMetadataUnavailable    = "METADATA_UNAVAILABLE"
-	statusComposeMismatch        = "COMPOSE_MISMATCH"
+	statusUpdateAvailable        = string(update.UpdateAvailable)
+	statusUpdateAvailableBlocked = string(update.UpdateAvailableBlocked)
+	statusCheckFailed            = string(update.CheckFailed)
+	statusMetadataUnavailable    = string(update.MetadataUnavailable)
+	statusComposeMismatch        = string(update.ComposeMismatch)
 )
 
 // checkFailThreshold is the number of consecutive failed checks before notifying.
 const checkFailThreshold = 3
+
+// absentPruneAfter is how long a container may be missing from check results
+// before its dedup state is dropped. Shorter absences (recreate mid-check,
+// compose down/up) keep the state so the container is not re-announced.
+const absentPruneAfter = 24 * time.Hour
 
 // Snapshot is the part of a check result that Detect needs.
 type Snapshot struct {
@@ -34,11 +39,14 @@ func Muted(labels map[string]string) bool {
 
 // Detect diffs check results against prev and returns the events to emit plus the new state.
 // It performs no I/O and does not modify prev. Muted containers are tracked but emit nothing.
+// Containers in prev but not in snaps keep their state unchanged until they have
+// been absent for absentPruneAfter, then are dropped from next.
 func Detect(prev map[string]storage.NotifyContainerState, snaps []Snapshot, s Settings, now time.Time) (events []Event, next map[string]storage.NotifyContainerState) {
 	next = make(map[string]storage.NotifyContainerState, len(snaps))
 	for _, sn := range snaps {
 		st := prev[sn.Name]
 		st.ContainerName = sn.Name
+		st.LastSeen = now
 		muted := Muted(sn.Labels)
 		emit := func(e Event) {
 			if muted {
@@ -56,7 +64,8 @@ func Detect(prev map[string]storage.NotifyContainerState, snaps []Snapshot, s Se
 
 		if sn.Status == statusUpdateAvailable || blockedStatus {
 			if lvl, ok := Classify(sn.CurrentVersion, target); ok {
-				if lvl >= effectiveMinLevel(sn.Labels, s) && target != st.LastNotifiedVersion {
+				minLvl := effectiveMinLevel(sn.Labels, s)
+				if lvl >= minLvl && target != st.LastNotifiedVersion && newerThanNotified(st.LastNotifiedVersion, target, minLvl) {
 					emit(Event{Kind: EventNewVersion, FromVersion: sn.CurrentVersion, ToVersion: target, Level: lvl})
 					st.LastNotifiedVersion = target
 				}
@@ -67,10 +76,20 @@ func Detect(prev map[string]storage.NotifyContainerState, snaps []Snapshot, s Se
 			}
 		}
 
-		if blockedStatus && !st.Blocked {
-			emit(Event{Kind: EventUpdateBlocked, FromVersion: sn.CurrentVersion, ToVersion: target, Message: "Update blocked by pre-update check"})
+		switch {
+		case blockedStatus:
+			// A blocked row without a version predates blocked_version (or had no
+			// target): adopt the current target silently rather than re-announce.
+			legacy := st.Blocked && st.BlockedVersion == ""
+			if !legacy && (!st.Blocked || target != st.BlockedVersion) {
+				emit(Event{Kind: EventUpdateBlocked, FromVersion: sn.CurrentVersion, ToVersion: target, Message: "Update blocked by pre-update check"})
+			}
+			st.Blocked, st.BlockedVersion = true, target
+		case sn.Status == statusCheckFailed || sn.Status == statusMetadataUnavailable:
+			// A transient check failure says nothing about the block; keep it.
+		default:
+			st.Blocked, st.BlockedVersion = false, ""
 		}
-		st.Blocked = blockedStatus
 
 		if sn.Status == statusCheckFailed || sn.Status == statusMetadataUnavailable {
 			st.CheckFailCount++
@@ -90,7 +109,31 @@ func Detect(prev map[string]storage.NotifyContainerState, snaps []Snapshot, s Se
 
 		next[sn.Name] = st
 	}
+	for name, st := range prev {
+		if _, ok := next[name]; ok {
+			continue
+		}
+		if st.LastSeen.IsZero() {
+			st.LastSeen = now // row predates last_seen: start its grace period now
+		} else if now.Sub(st.LastSeen) > absentPruneAfter {
+			continue
+		}
+		next[name] = st
+	}
 	return events, next
+}
+
+// newerThanNotified reports whether target is worth a new notification given
+// the version already notified: it must be newer than last by at least minLvl.
+// This stops rebuilds (e.g. -ls205 -> -ls206) of an already-announced release
+// from re-notifying, and ignores the registry moving backwards. An empty or
+// unparseable last version imposes no restriction.
+func newerThanNotified(last, target string, minLvl Level) bool {
+	if last == "" || version.NewParser().ParseTag(last) == nil {
+		return true
+	}
+	lvl, ok := Classify(last, target)
+	return ok && lvl >= minLvl
 }
 
 // comparisonUnknown reports whether current and target cannot be compared as versions

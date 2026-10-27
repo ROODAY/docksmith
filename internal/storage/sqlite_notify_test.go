@@ -130,9 +130,10 @@ func TestNotifyPending_UpsertReplacesByDedupKey(t *testing.T) {
 func TestNotifyContainerStates_ReplaceDropsMissing(t *testing.T) {
 	s, dbPath := newNotifyTestStorage(t)
 	ctx := context.Background()
+	seen := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
 
 	err := s.ReplaceNotifyContainerStates(ctx, map[string]NotifyContainerState{
-		"a": {ContainerName: "a", LastNotifiedVersion: "1.0", Blocked: true, CheckFailCount: 3, ComposeMismatch: true},
+		"a": {ContainerName: "a", LastNotifiedVersion: "1.0", Blocked: true, BlockedVersion: "1.1", CheckFailCount: 3, ComposeMismatch: true, LastSeen: seen},
 		"b": {ContainerName: "b", LastNotifiedDigest: "sha256:x", CheckFailNotified: true},
 	})
 	if err != nil {
@@ -149,10 +150,10 @@ func TestNotifyContainerStates_ReplaceDropsMissing(t *testing.T) {
 	if err != nil || len(got) != 2 {
 		t.Fatalf("got=%v err=%v", got, err)
 	}
-	if a := got["a"]; a.LastNotifiedVersion != "1.0" || !a.Blocked || a.CheckFailCount != 3 || !a.ComposeMismatch || a.CheckFailNotified {
+	if a := got["a"]; a.LastNotifiedVersion != "1.0" || !a.Blocked || a.BlockedVersion != "1.1" || !a.LastSeen.Equal(seen) || a.CheckFailCount != 3 || !a.ComposeMismatch || a.CheckFailNotified {
 		t.Fatalf("a wrong: %+v", a)
 	}
-	if b := got["b"]; b.LastNotifiedDigest != "sha256:x" || !b.CheckFailNotified || b.Blocked {
+	if b := got["b"]; b.LastNotifiedDigest != "sha256:x" || !b.CheckFailNotified || b.Blocked || !b.LastSeen.IsZero() {
 		t.Fatalf("b wrong: %+v", b)
 	}
 
@@ -219,5 +220,30 @@ func TestNotifyPending_DeleteIfUnchanged(t *testing.T) {
 	}
 	if err := s.DeleteNotifyPendingIfUnchanged(ctx, nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNotifyStateMigration25_DownRemovesColumns(t *testing.T) {
+	s, _ := newNotifyTestStorage(t)
+	down, err := migrationsFS.ReadFile("migrations/000025_notify_state_last_seen.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(string(down)); err != nil {
+		t.Fatalf("down migration: %v", err)
+	}
+	rows, err := s.db.Query(`SELECT name FROM pragma_table_info('notify_container_state')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		if name == "last_seen" || name == "blocked_version" {
+			t.Fatalf("column %s still present after down migration", name)
+		}
 	}
 }

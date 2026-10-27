@@ -27,6 +27,7 @@ type Notifier struct {
 	store         storage.NotifyStore
 	cfg           ConfigStore
 	checkInterval time.Duration
+	now           func() time.Time // clock for change detection; replaced in tests
 
 	settings   atomic.Pointer[Settings] // immutable once stored; Settings() hands out copies
 	dispatcher *Dispatcher
@@ -49,7 +50,7 @@ type Notifier struct {
 
 // New creates a notifier. Settings are loaded from cfg (defaults on error).
 func New(store storage.NotifyStore, cfg ConfigStore, ops OperationLookup, bus *events.Bus, sender Sender, hostname string, checkInterval time.Duration) *Notifier {
-	n := &Notifier{store: store, cfg: cfg, checkInterval: checkInterval}
+	n := &Notifier{store: store, cfg: cfg, checkInterval: checkInterval, now: time.Now}
 
 	ctx, cancel := context.WithTimeout(context.Background(), settingsLoadTimeout)
 	defer cancel()
@@ -111,7 +112,9 @@ func (n *Notifier) currentVersion(container string) (string, bool) {
 // OnCheckResult detects notifiable changes in a check result, persists the new
 // per-container state and dispatches the events. seq orders results: a result
 // whose seq is not greater than the last processed one is ignored. The first
-// non-empty result ever seen only seeds the state, without notifying.
+// non-empty result ever seen only seeds the state, without notifying. Empty
+// results are ignored; containers missing from a result keep their state until
+// absent for absentPruneAfter, when their state and pending rows are dropped.
 func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult, seq uint64) {
 	if r == nil {
 		return
@@ -154,6 +157,9 @@ func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult,
 	n.lastMu.Lock()
 	n.lastLabels, n.lastVersions = labels, versions
 	n.lastMu.Unlock()
+	if len(snaps) == 0 {
+		return // an empty result carries no information; never prune or seed on it
+	}
 
 	_, seeded, err := n.cfg.GetConfig(ctx, storage.NotifySeededKey)
 	if err != nil {
@@ -165,7 +171,7 @@ func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult,
 		log.Printf("notify: load container states: %v", err)
 		return
 	}
-	evs, next := Detect(prev, snaps, n.Settings(), time.Now())
+	evs, next := Detect(prev, snaps, n.Settings(), n.now())
 	if err := n.store.ReplaceNotifyContainerStates(ctx, next); err != nil {
 		log.Printf("notify: save container states: %v", err)
 		return
@@ -180,9 +186,6 @@ func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult,
 	}
 
 	if !seeded {
-		if len(next) == 0 {
-			return // wait for a non-empty result before seeding
-		}
 		if err := n.cfg.SetConfig(ctx, storage.NotifySeededKey, "true"); err != nil {
 			log.Printf("notify: set seeded flag: %v", err)
 		}

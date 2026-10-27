@@ -69,15 +69,65 @@ func TestNotifier_DropsPendingForRemovedContainers(t *testing.T) {
 	sid := addService(t, st, "sum", "summary", true, EventNewVersion)
 	n, _ := startNotifier(t, st, &fakeSender{})
 	ctx := context.Background()
+	t0 := time.Now()
+	n.now = func() time.Time { return t0 }
 
 	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", nil), 4)
 	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.2", nil), 5)
 	if got := len(pending(t, st, sid)); got != 1 {
 		t.Fatalf("pending = %d, want 1", got)
 	}
+
+	// A successful check with zero containers prunes nothing.
 	n.OnCheckResult(ctx, &update.DiscoveryResult{}, 6)
+	if got := len(pending(t, st, sid)); got != 1 {
+		t.Fatalf("pending after empty result = %d, want 1", got)
+	}
+
+	// Absent for less than a day: state and pending rows are kept.
+	n.now = func() time.Time { return t0.Add(time.Hour) }
+	n.OnCheckResult(ctx, otherContainerResult(), 7)
+	if got := len(pending(t, st, sid)); got != 1 {
+		t.Fatalf("pending after short absence = %d, want 1", got)
+	}
+	states, _ := st.LoadNotifyContainerStates(ctx)
+	if states["web"].LastNotifiedVersion != "1.0.2" {
+		t.Fatalf("state after short absence: %+v", states)
+	}
+
+	// Absent for more than a day: pruned.
+	n.now = func() time.Time { return t0.Add(25 * time.Hour) }
+	n.OnCheckResult(ctx, otherContainerResult(), 8)
 	if got := len(pending(t, st, sid)); got != 0 {
 		t.Fatalf("pending after removal = %d, want 0", got)
+	}
+	states, _ = st.LoadNotifyContainerStates(ctx)
+	if _, ok := states["web"]; ok {
+		t.Fatalf("state not pruned: %+v", states)
+	}
+}
+
+func otherContainerResult() *update.DiscoveryResult {
+	return &update.DiscoveryResult{Containers: []update.ContainerInfo{{
+		ContainerUpdate: update.ContainerUpdate{ContainerName: "db", Status: update.UpToDate, CurrentVersion: "1.0.0"},
+	}}}
+}
+
+func TestNotifier_RecreatedContainerNotReannounced(t *testing.T) {
+	st := newDispatchStore(t)
+	addService(t, st, "imm", "immediate", true, EventNewVersion)
+	fs := &fakeSender{}
+	n, _ := startNotifier(t, st, fs)
+	ctx := context.Background()
+
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.0", nil), 1) // seed
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", nil), 2)
+	waitFor(t, "one send", func() bool { return fs.total() == 1 })
+	n.OnCheckResult(ctx, otherContainerResult(), 3) // web missing mid-recreate
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", nil), 4)
+	time.Sleep(100 * time.Millisecond)
+	if got := fs.total(); got != 1 {
+		t.Fatalf("sends = %d, want 1 (container re-announced after one missed check)", got)
 	}
 }
 

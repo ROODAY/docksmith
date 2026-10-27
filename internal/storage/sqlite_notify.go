@@ -47,6 +47,14 @@ func scanNotifyService(sc rowScanner) (NotifyServiceRow, error) {
 	return r, nil
 }
 
+// nullableTime stores the zero time as NULL and other times in UTC.
+func nullableTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC()
+}
+
 func boolInt(b bool) int {
 	if b {
 		return 1
@@ -188,7 +196,8 @@ func (s *SQLiteStorage) SetNotifySummarySent(ctx context.Context, id int64, at t
 func (s *SQLiteStorage) LoadNotifyContainerStates(ctx context.Context) (map[string]NotifyContainerState, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT container_name, last_notified_version, last_notified_digest,
-			blocked, check_fail_count, check_fail_notified, compose_mismatch
+			blocked, check_fail_count, check_fail_notified, compose_mismatch,
+			blocked_version, last_seen
 		FROM notify_container_state`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load notify container states: %w", err)
@@ -198,11 +207,15 @@ func (s *SQLiteStorage) LoadNotifyContainerStates(ctx context.Context) (map[stri
 	for rows.Next() {
 		var st NotifyContainerState
 		var blocked, failNotified, mismatch int
+		var lastSeen sql.NullTime
 		if err := rows.Scan(&st.ContainerName, &st.LastNotifiedVersion, &st.LastNotifiedDigest,
-			&blocked, &st.CheckFailCount, &failNotified, &mismatch); err != nil {
+			&blocked, &st.CheckFailCount, &failNotified, &mismatch, &st.BlockedVersion, &lastSeen); err != nil {
 			return nil, fmt.Errorf("failed to scan notify container state: %w", err)
 		}
 		st.Blocked, st.CheckFailNotified, st.ComposeMismatch = blocked != 0, failNotified != 0, mismatch != 0
+		if lastSeen.Valid {
+			st.LastSeen = lastSeen.Time
+		}
 		out[st.ContainerName] = st
 	}
 	return out, rows.Err()
@@ -224,8 +237,8 @@ func (s *SQLiteStorage) ReplaceNotifyContainerStates(ctx context.Context, states
 		stmt, err := tx.PrepareContext(ctx, `
 			INSERT INTO notify_container_state
 			(container_name, last_notified_version, last_notified_digest, blocked,
-			 check_fail_count, check_fail_notified, compose_mismatch)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`)
+			 check_fail_count, check_fail_notified, compose_mismatch, blocked_version, last_seen)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			return err
 		}
@@ -233,7 +246,7 @@ func (s *SQLiteStorage) ReplaceNotifyContainerStates(ctx context.Context, states
 		for name, st := range states {
 			if _, err := stmt.ExecContext(ctx, name, st.LastNotifiedVersion, st.LastNotifiedDigest,
 				boolInt(st.Blocked), st.CheckFailCount, boolInt(st.CheckFailNotified),
-				boolInt(st.ComposeMismatch)); err != nil {
+				boolInt(st.ComposeMismatch), st.BlockedVersion, nullableTime(st.LastSeen)); err != nil {
 				return err
 			}
 		}

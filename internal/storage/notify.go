@@ -26,8 +26,10 @@ type NotifyServiceRow struct {
 // NotifyContainerState is the per-container notification dedup state.
 type NotifyContainerState struct {
 	ContainerName, LastNotifiedVersion, LastNotifiedDigest string
+	BlockedVersion                                         string // target that update_blocked was sent for
 	Blocked, CheckFailNotified, ComposeMismatch            bool
 	CheckFailCount                                         int
+	LastSeen                                               time.Time // last check that included the container; zero if unknown
 }
 
 // NotifyPendingRow is a queued (digest) notification awaiting delivery.
