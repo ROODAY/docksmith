@@ -40,7 +40,7 @@ func TestNotifier_SeedsSilentlyThenNotifies(t *testing.T) {
 	ctx := context.Background()
 
 	n, _ := startNotifier(t, st, fs)
-	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", nil))
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", nil), 1)
 	time.Sleep(100 * time.Millisecond)
 	if got := fs.total(); got != 0 {
 		t.Fatalf("seeding run sent %d messages, want 0", got)
@@ -49,12 +49,12 @@ func TestNotifier_SeedsSilentlyThenNotifies(t *testing.T) {
 		t.Fatalf("notify_seeded = %q, %v, %v; want set", v, ok, err)
 	}
 
-	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.2", nil))
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.2", nil), 2)
 	waitFor(t, "one send", func() bool { return fs.total() == 1 })
 
 	fs2 := &fakeSender{}
 	n2, _ := startNotifier(t, st, fs2)
-	n2.OnCheckResult(ctx, checkResult("1.0.0", "1.0.2", nil))
+	n2.OnCheckResult(ctx, checkResult("1.0.0", "1.0.2", nil), 3)
 	time.Sleep(100 * time.Millisecond)
 	if got := fs2.total(); got != 0 {
 		t.Fatalf("restarted notifier sent %d messages, want 0", got)
@@ -70,12 +70,12 @@ func TestNotifier_DropsPendingForRemovedContainers(t *testing.T) {
 	n, _ := startNotifier(t, st, &fakeSender{})
 	ctx := context.Background()
 
-	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", nil))
-	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.2", nil))
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", nil), 4)
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.2", nil), 5)
 	if got := len(pending(t, st, sid)); got != 1 {
 		t.Fatalf("pending = %d, want 1", got)
 	}
-	n.OnCheckResult(ctx, &update.DiscoveryResult{})
+	n.OnCheckResult(ctx, &update.DiscoveryResult{}, 6)
 	if got := len(pending(t, st, sid)); got != 0 {
 		t.Fatalf("pending after removal = %d, want 0", got)
 	}
@@ -88,7 +88,7 @@ func TestNotifier_CurrentVersionsAndMutedOperations(t *testing.T) {
 	n, _ := startNotifier(t, st, fs)
 	ctx := context.Background()
 
-	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", map[string]string{"docksmith.notify": "false"}))
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", map[string]string{"docksmith.notify": "false"}), 7)
 	if v, ok := n.currentVersion("web"); !ok || v != "1.0.0" {
 		t.Fatalf("currentVersion(web) = %q, %v", v, ok)
 	}
@@ -179,5 +179,47 @@ func TestNotifier_UpdateSettings(t *testing.T) {
 	}
 	if n.CheckInterval() != time.Hour || n.Dispatcher() == nil {
 		t.Fatal("accessors wrong")
+	}
+}
+
+func TestNotifier_IgnoresOutOfOrderResults(t *testing.T) {
+	st := newDispatchStore(t)
+	addService(t, st, "imm", "immediate", true, EventNewVersion)
+	fs := &fakeSender{}
+	n, _ := startNotifier(t, st, fs)
+	ctx := context.Background()
+
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.0", nil), 1) // seed
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.2", nil), 3)
+	waitFor(t, "one send", func() bool { return fs.total() == 1 })
+	n.OnCheckResult(ctx, checkResult("0.9.0", "1.0.1", nil), 2) // older, delivered late
+	if v, _ := n.currentVersion("web"); v != "1.0.0" {
+		t.Fatalf("stale result updated current version to %q", v)
+	}
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.2", nil), 4)
+	time.Sleep(100 * time.Millisecond)
+	if got := fs.total(); got != 1 {
+		t.Fatalf("sends = %d, want 1 (no backwards or repeated notification)", got)
+	}
+}
+
+func TestNotifier_EmptyFirstResultDoesNotSeed(t *testing.T) {
+	st := newDispatchStore(t)
+	addService(t, st, "imm", "immediate", true, EventNewVersion)
+	fs := &fakeSender{}
+	n, _ := startNotifier(t, st, fs)
+	ctx := context.Background()
+
+	n.OnCheckResult(ctx, &update.DiscoveryResult{}, 1)
+	if _, ok, _ := st.GetConfig(ctx, storage.NotifySeededKey); ok {
+		t.Fatal("empty result seeded the state")
+	}
+	n.OnCheckResult(ctx, checkResult("1.0.0", "1.0.1", nil), 2)
+	time.Sleep(100 * time.Millisecond)
+	if got := fs.total(); got != 0 {
+		t.Fatalf("first non-empty result sent %d messages, want 0", got)
+	}
+	if _, ok, _ := st.GetConfig(ctx, storage.NotifySeededKey); !ok {
+		t.Fatal("first non-empty result did not seed")
 	}
 }

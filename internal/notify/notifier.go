@@ -16,7 +16,10 @@ import (
 	"github.com/chis/docksmith/internal/update"
 )
 
-const settingsLoadTimeout = 5 * time.Second
+const (
+	settingsLoadTimeout = 5 * time.Second
+	checkResultTimeout  = time.Minute
+)
 
 // Notifier ties together change detection, operation events, the dispatcher
 // and the summary scheduler. All methods are safe for concurrent use.
@@ -33,7 +36,11 @@ type Notifier struct {
 	ctxMu sync.RWMutex
 	ctx   context.Context // set by Start
 
-	checkMu sync.Mutex // serialises OnCheckResult
+	checkMu      sync.Mutex // serialises OnCheckResult; guards lastSeq and processedAny
+	lastSeq      uint64
+	processedAny bool
+
+	settingsMu sync.Mutex // serialises UpdateSettings (save then store)
 
 	lastMu       sync.RWMutex
 	lastLabels   map[string]map[string]string // container -> labels from the most recent check
@@ -102,15 +109,29 @@ func (n *Notifier) currentVersion(container string) (string, bool) {
 }
 
 // OnCheckResult detects notifiable changes in a check result, persists the new
-// per-container state and dispatches the events. The first result ever seen
-// only seeds the state, without notifying.
-func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult) {
+// per-container state and dispatches the events. seq orders results: a result
+// whose seq is not greater than the last processed one is ignored. The first
+// non-empty result ever seen only seeds the state, without notifying.
+func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult, seq uint64) {
 	if r == nil {
 		return
 	}
-	if rc := n.runCtx(); rc != nil && rc.Err() != nil {
+	if rc := n.runCtx(); rc != nil {
+		if rc.Err() != nil {
+			return
+		}
+		ctx = rc // store calls stop at shutdown rather than with the caller's ctx
+	}
+	ctx, cancel := context.WithTimeout(ctx, checkResultTimeout)
+	defer cancel()
+
+	n.checkMu.Lock()
+	defer n.checkMu.Unlock()
+	if n.processedAny && seq <= n.lastSeq {
+		log.Printf("notify: ignoring out-of-order check result %d (last processed %d)", seq, n.lastSeq)
 		return
 	}
+	n.processedAny, n.lastSeq = true, seq
 
 	snaps := make([]Snapshot, 0, len(r.Containers))
 	labels := make(map[string]map[string]string, len(r.Containers))
@@ -134,9 +155,11 @@ func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult)
 	n.lastLabels, n.lastVersions = labels, versions
 	n.lastMu.Unlock()
 
-	n.checkMu.Lock()
-	defer n.checkMu.Unlock()
-
+	_, seeded, err := n.cfg.GetConfig(ctx, storage.NotifySeededKey)
+	if err != nil {
+		log.Printf("notify: read seeded flag: %v", err)
+		return // nothing recorded, so the same events are detected next time
+	}
 	prev, err := n.store.LoadNotifyContainerStates(ctx)
 	if err != nil {
 		log.Printf("notify: load container states: %v", err)
@@ -145,7 +168,7 @@ func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult)
 	evs, next := Detect(prev, snaps, n.Settings(), time.Now())
 	if err := n.store.ReplaceNotifyContainerStates(ctx, next); err != nil {
 		log.Printf("notify: save container states: %v", err)
-		return // nothing recorded, so the same events are detected next time
+		return
 	}
 	for name := range prev {
 		if _, ok := next[name]; ok {
@@ -156,12 +179,10 @@ func (n *Notifier) OnCheckResult(ctx context.Context, r *update.DiscoveryResult)
 		}
 	}
 
-	_, seeded, err := n.cfg.GetConfig(ctx, storage.NotifySeededKey)
-	if err != nil {
-		log.Printf("notify: read seeded flag: %v", err)
-		return
-	}
 	if !seeded {
+		if len(next) == 0 {
+			return // wait for a non-empty result before seeding
+		}
 		if err := n.cfg.SetConfig(ctx, storage.NotifySeededKey, "true"); err != nil {
 			log.Printf("notify: set seeded flag: %v", err)
 		}
@@ -189,6 +210,8 @@ func cloneSettings(s Settings) Settings {
 // Missing timing entries are filled from the defaults.
 func (n *Notifier) UpdateSettings(ctx context.Context, s Settings) error {
 	s = cloneSettings(s)
+	n.settingsMu.Lock()
+	defer n.settingsMu.Unlock()
 	if err := n.validate(&s); err != nil {
 		return err
 	}

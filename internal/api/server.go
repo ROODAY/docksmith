@@ -139,13 +139,15 @@ func NewServer(cfg Config) *Server {
 	// Notifications require storage that implements storage.NotifyStore.
 	var notifyStore storage.NotifyStore
 	var notifier *notify.Notifier
+	var notifyCtx context.Context
+	var notifyCancel context.CancelFunc
 	if ns, ok := cfg.StorageService.(storage.NotifyStore); ok {
 		notifyStore = ns
 		notifier = notify.New(ns, cfg.StorageService, cfg.StorageService, eventBus, notify.ShoutrrrSender{},
 			resolveHostname(cfg.DockerService), checkInterval)
 		backgroundChecker.SetResultObserver(notifier.OnCheckResult)
+		notifyCtx, notifyCancel = context.WithCancel(context.Background())
 	}
-	notifyCtx, notifyCancel := context.WithCancel(context.Background())
 
 	s := &Server{
 		dockerService:         cfg.DockerService,
