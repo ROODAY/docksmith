@@ -355,17 +355,8 @@ func (s *Server) executeLabelOperationAsync(ctx context.Context, operationID str
 	// Stage 4: Complete (100%)
 	s.publishLabelProgress(operationID, cfg.containerName, stackName, "complete", 100, "Settings saved and container restarted")
 
-	var newLabelsJSON []byte
-	if len(modified) > 0 {
-		newLabelsJSON, _ = json.Marshal(modified)
-	} else if len(removed) > 0 {
-		removedMap := make(map[string]string)
-		for _, labelName := range removed {
-			removedMap[labelName] = ""
-		}
-		newLabelsJSON, _ = json.Marshal(removedMap)
-	}
-	s.completeLabelOperation(ctx, operationID, string(newLabelsJSON))
+	newLabelsJSON := labelHistoryJSON(modified, removed)
+	s.completeLabelOperation(ctx, operationID, newLabelsJSON)
 
 	// Emit container updated event for dashboard refresh
 	if s.eventBus != nil {
@@ -1020,4 +1011,21 @@ func validateRemoveLabels(names []string) error {
 		}
 	}
 	return nil
+}
+
+// labelHistoryJSON records an operation's label changes for history and rollback:
+// modified labels with their new values, removed labels with "".
+func labelHistoryJSON(modified map[string]string, removed []string) string {
+	if len(modified) == 0 && len(removed) == 0 {
+		return ""
+	}
+	history := make(map[string]string, len(modified)+len(removed))
+	for k, v := range modified {
+		history[k] = v
+	}
+	for _, name := range removed {
+		history[name] = ""
+	}
+	b, _ := json.Marshal(history)
+	return string(b)
 }

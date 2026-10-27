@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -191,4 +192,32 @@ func TestSetLabels_RemoveLabels(t *testing.T) {
 			t.Errorf("notify-digest should have been removed, labels: %v", labels)
 		}
 	})
+}
+
+func TestLabelHistoryJSON_CombinedSetAndRemove(t *testing.T) {
+	raw := labelHistoryJSON(
+		map[string]string{scripts.NotifyLevelLabel: "minor"},
+		[]string{scripts.NotifyDigestLabel},
+	)
+	var got map[string]string
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("history is not valid JSON: %q: %v", raw, err)
+	}
+	if got[scripts.NotifyLevelLabel] != "minor" {
+		t.Errorf("set label missing from history: %v", got)
+	}
+	if v, ok := got[scripts.NotifyDigestLabel]; !ok || v != "" {
+		t.Errorf("removed label should be recorded with empty value, got %v", got)
+	}
+
+	if labelHistoryJSON(nil, nil) != "" {
+		t.Error("expected empty history when nothing changed")
+	}
+
+	// Rollback restores a removed label from its old value via setRollbackLabel.
+	req := &SetLabelsRequest{}
+	(&Server{}).setRollbackLabel(req, scripts.NotifyDigestLabel, "true")
+	if req.NotifyDigest == nil || !*req.NotifyDigest {
+		t.Error("rollback should restore notify-digest=true")
+	}
 }
