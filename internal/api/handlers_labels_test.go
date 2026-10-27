@@ -221,3 +221,73 @@ func TestLabelHistoryJSON_CombinedSetAndRemove(t *testing.T) {
 		t.Error("rollback should restore notify-digest=true")
 	}
 }
+
+func loadWebService(t *testing.T, labels string) *compose.Service {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "docker-compose.yml")
+	yml := "services:\n  web:\n    image: nginx:1.25\n    container_name: web\n" + labels
+	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cf, err := compose.LoadComposeFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := cf.FindServiceByContainerName("web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
+}
+
+func TestLabelRollback_AddedNotifyLabelsAreRemoved(t *testing.T) {
+	s := &Server{}
+	// The original op added docksmith.notify=false (mute) and notify-digest=true.
+	req, changed := s.buildLabelRollbackRequest("web", false, map[string]string{},
+		map[string]string{scripts.NotifyLabel: "false", scripts.NotifyDigestLabel: "true"})
+	if !changed {
+		t.Fatal("expected changes")
+	}
+	if req.Notify != nil || req.NotifyDigest != nil {
+		t.Fatalf("rollback must not set explicit notify values: notify=%v digest=%v", req.Notify, req.NotifyDigest)
+	}
+
+	service := loadWebService(t, "    labels:\n      docksmith.notify: \"false\"\n      docksmith.notify-digest: \"true\"\n")
+	if _, err := applyLabelChanges(service, req); err != nil {
+		t.Fatal(err)
+	}
+	labels, err := service.GetAllLabels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{scripts.NotifyLabel, scripts.NotifyDigestLabel} {
+		if v, ok := labels[k]; ok {
+			t.Errorf("label %s = %q after rollback, want removed", k, v)
+		}
+	}
+}
+
+func TestLabelRollback_ChangedNotifyLabelRestoresOldValue(t *testing.T) {
+	req, _ := (&Server{}).buildLabelRollbackRequest("web", false,
+		map[string]string{scripts.NotifyLabel: "false"}, map[string]string{scripts.NotifyLabel: ""})
+	if req.Notify == nil || *req.Notify || len(req.RemoveLabels) != 0 {
+		t.Fatalf("removed mute should be restored as notify=false: %+v", req)
+	}
+}
+
+func TestSetLabels_RejectsSetAndRemoveOverlap(t *testing.T) {
+	s := &Server{}
+	body := strings.NewReader(`{"container":"web","notify":false,"remove_labels":["docksmith.notify"]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/labels/set", body)
+	rec := httptest.NewRecorder()
+	s.handleLabelsSet(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "both set and removed") {
+		t.Fatalf("expected 400 overlap error, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	level := "minor"
+	service := loadWebService(t, "")
+	if _, err := applyLabelChanges(service, &SetLabelsRequest{NotifyLevel: &level, RemoveLabels: []string{scripts.NotifyLevelLabel}}); err == nil {
+		t.Fatal("applyLabelChanges accepted a label that is both set and removed")
+	}
+}

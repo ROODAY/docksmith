@@ -145,6 +145,10 @@ func (s *Server) handleLabelsSet(w http.ResponseWriter, r *http.Request) {
 		RespondBadRequest(w, err)
 		return
 	}
+	if err := validateNoSetRemoveOverlap(&req); err != nil {
+		RespondBadRequest(w, err)
+		return
+	}
 
 	if req.NotifyLevel != nil {
 		if err := validateNotifyLevel(*req.NotifyLevel); err != nil {
@@ -413,6 +417,9 @@ func validateNotifyLevel(level string) error {
 func applyLabelChanges(service *compose.Service, req *SetLabelsRequest) (map[string]string, error) {
 	// Validate before mutating any label
 	if err := validateRemoveLabels(req.RemoveLabels); err != nil {
+		return nil, err
+	}
+	if err := validateNoSetRemoveOverlap(req); err != nil {
 		return nil, err
 	}
 
@@ -802,35 +809,7 @@ func (s *Server) handleLabelRollback(w http.ResponseWriter, r *http.Request) {
 			newLabels = make(map[string]string)
 		}
 
-		// Build the inverse label operation
-		// For each label that was changed: restore its old value or remove it
-		rollbackReq := &SetLabelsRequest{
-			Container: op.ContainerName,
-			Force:     req.Force,
-		}
-
-		hasChanges := false
-		for labelKey, newVal := range newLabels {
-			oldVal, hadOldVal := oldLabels[labelKey]
-
-			if newVal == "" {
-				// Label was removed — restore it if it had a value
-				if hadOldVal && oldVal != "" {
-					hasChanges = true
-					s.setRollbackLabel(rollbackReq, labelKey, oldVal)
-				}
-			} else if hadOldVal && oldVal != "" {
-				// Label was changed — restore old value
-				if oldVal != newVal {
-					hasChanges = true
-					s.setRollbackLabel(rollbackReq, labelKey, oldVal)
-				}
-			} else {
-				// Label was added (didn't exist before) — remove it
-				hasChanges = true
-				s.setRollbackLabel(rollbackReq, labelKey, "")
-			}
-		}
+		rollbackReq, hasChanges := s.buildLabelRollbackRequest(op.ContainerName, req.Force, oldLabels, newLabels)
 
 		if !hasChanges {
 			results = append(results, BatchLabelResult{
@@ -875,8 +854,46 @@ func (s *Server) handleLabelRollback(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// setRollbackLabel sets a label field on the rollback request based on the label key and target value
+// buildLabelRollbackRequest builds the inverse of a recorded label change: each
+// label in newLabels is restored to its value in oldLabels, or removed if it did
+// not exist before. It reports whether there is anything to roll back.
+func (s *Server) buildLabelRollbackRequest(container string, force bool, oldLabels, newLabels map[string]string) (*SetLabelsRequest, bool) {
+	req := &SetLabelsRequest{Container: container, Force: force}
+	hasChanges := false
+	for labelKey, newVal := range newLabels {
+		oldVal, hadOldVal := oldLabels[labelKey]
+
+		if newVal == "" {
+			// Label was removed — restore it if it had a value
+			if hadOldVal && oldVal != "" {
+				hasChanges = true
+				s.setRollbackLabel(req, labelKey, oldVal)
+			}
+		} else if hadOldVal && oldVal != "" {
+			// Label was changed — restore old value
+			if oldVal != newVal {
+				hasChanges = true
+				s.setRollbackLabel(req, labelKey, oldVal)
+			}
+		} else {
+			// Label was added (didn't exist before) — remove it
+			hasChanges = true
+			s.setRollbackLabel(req, labelKey, "")
+		}
+	}
+	return req, hasChanges
+}
+
+// setRollbackLabel sets a label field on the rollback request based on the label key and target value.
+// An empty value for the notify labels (where an explicit "false" is meaningful)
+// removes the label so the container inherits the default again.
 func (s *Server) setRollbackLabel(req *SetLabelsRequest, labelKey, value string) {
+	if value == "" && (labelKey == scripts.NotifyLabel || labelKey == scripts.NotifyDigestLabel) {
+		if !slices.Contains(req.RemoveLabels, labelKey) {
+			req.RemoveLabels = append(req.RemoveLabels, labelKey)
+		}
+		return
+	}
 	switch labelKey {
 	case scripts.IgnoreLabel:
 		v := value == "true"
@@ -1001,6 +1018,35 @@ func (s *Server) handleBatchLabels(w http.ResponseWriter, r *http.Request) {
 		"results":        results,
 		"batch_group_id": batchGroupID,
 	})
+}
+
+// validateNoSetRemoveOverlap rejects a request that both sets and removes the same label.
+func validateNoSetRemoveOverlap(req *SetLabelsRequest) error {
+	if len(req.RemoveLabels) == 0 {
+		return nil
+	}
+	set := map[string]bool{
+		scripts.IgnoreLabel:          req.Ignore != nil,
+		scripts.AllowLatestLabel:     req.AllowLatest != nil,
+		scripts.AllowPrereleaseLabel: req.AllowPrerelease != nil,
+		scripts.VersionPinMajorLabel: req.VersionPinMajor != nil,
+		scripts.VersionPinMinorLabel: req.VersionPinMinor != nil,
+		scripts.VersionPinPatchLabel: req.VersionPinPatch != nil,
+		scripts.TagRegexLabel:        req.TagRegex != nil,
+		scripts.VersionMinLabel:      req.VersionMin != nil,
+		scripts.VersionMaxLabel:      req.VersionMax != nil,
+		scripts.PreUpdateCheckLabel:  req.Script != nil,
+		scripts.RestartAfterLabel:    req.RestartAfter != nil,
+		scripts.NotifyLabel:          req.Notify != nil,
+		scripts.NotifyDigestLabel:    req.NotifyDigest != nil,
+		scripts.NotifyLevelLabel:     req.NotifyLevel != nil,
+	}
+	for _, name := range req.RemoveLabels {
+		if set[name] {
+			return fmt.Errorf("label %q is both set and removed", name)
+		}
+	}
+	return nil
 }
 
 // validateRemoveLabels checks every name is a label docksmith manages.
