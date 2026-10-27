@@ -26,7 +26,7 @@
 ```yaml
 services:
   docksmith:
-    image: ghcr.io/chrisae9/docksmith:latest
+    image: ghcr.io/rooday/docksmith:latest
     container_name: docksmith
     restart: unless-stopped
     ports:

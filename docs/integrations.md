@@ -25,7 +25,7 @@ Add a Docksmith widget to [gethomepage](https://gethomepage.dev) using the custo
       container: docksmith
       widget:
         type: customapi
-        url: http://docksmith:3000/api/status
+        url: http://docksmith:8080/api/status
         mappings:
           - field: data.total_checked
             label: Monitored
@@ -106,7 +106,7 @@ services:
 
   # Docksmith
   docksmith:
-    image: ghcr.io/chrisae9/docksmith:latest
+    image: ghcr.io/rooday/docksmith:latest
     container_name: docksmith
     depends_on:
       - traefik
@@ -119,7 +119,7 @@ services:
       - traefik.http.routers.docksmith.rule=Host(`docksmith.ts.example.com`)
       - traefik.http.routers.docksmith.entrypoints=websecure
       - traefik.http.routers.docksmith.tls.certresolver=tailscale
-      - traefik.http.services.docksmith.loadbalancer.server.port=3000
+      - traefik.http.services.docksmith.loadbalancer.server.port=8080
       - docksmith.ignore=true
     restart: unless-stopped
 ```
@@ -159,7 +159,7 @@ services:
     restart: unless-stopped
 
   docksmith:
-    image: ghcr.io/chrisae9/docksmith:latest
+    image: ghcr.io/rooday/docksmith:latest
     container_name: docksmith
     network_mode: service:tailscale
     depends_on:
@@ -173,7 +173,7 @@ services:
     restart: unless-stopped
 ```
 
-Access at `http://docksmith:3000` from any device on your Tailnet.
+Access at `http://docksmith:8080` from any device on your Tailnet.
 
 ### With Tailscale Serve (HTTPS)
 
@@ -181,7 +181,7 @@ For HTTPS without Traefik, use Tailscale's built-in serve feature:
 
 ```bash
 # On the Tailscale container
-tailscale serve --bg 3000
+tailscale serve --bg 8080
 ```
 
 This provides HTTPS at `https://docksmith.ts.example.com` using Tailscale's certificates.

@@ -28,9 +28,10 @@ jobs:
       - name: Generate tags
         id: tags
         run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/docksmith"
           if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
             SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
-            echo "tags=ghcr.io/chrisae9/docksmith:main,ghcr.io/chrisae9/docksmith:sha-${SHA_SHORT}" >> $GITHUB_OUTPUT
+            echo "tags=${IMAGE}:main,${IMAGE}:sha-${SHA_SHORT}" >> $GITHUB_OUTPUT
             echo "push=true" >> $GITHUB_OUTPUT
           else
             echo "tags=" >> $GITHUB_OUTPUT
