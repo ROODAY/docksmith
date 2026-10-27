@@ -42,7 +42,7 @@ Skip a container from all update checks.
 ```yaml
 services:
   docksmith:
-    image: ghcr.io/chrisae9/docksmith:latest
+    image: ghcr.io/rooday/docksmith:latest
     labels:
       - docksmith.ignore=true
 ```

@@ -22,7 +22,7 @@ mkdir scripts
 ```yaml
 services:
   docksmith:
-    image: ghcr.io/chrisae9/docksmith:latest
+    image: ghcr.io/rooday/docksmith:latest
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data
