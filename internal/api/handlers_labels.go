@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -21,23 +22,24 @@ import (
 
 // SetLabelsRequest represents a request to set labels
 type SetLabelsRequest struct {
-	Container        string  `json:"container"`
-	Ignore           *bool   `json:"ignore,omitempty"`
-	AllowLatest      *bool   `json:"allow_latest,omitempty"`
-	AllowPrerelease  *bool   `json:"allow_prerelease,omitempty"`
-	VersionPinMajor  *bool   `json:"version_pin_major,omitempty"`
-	VersionPinMinor  *bool   `json:"version_pin_minor,omitempty"`
-	VersionPinPatch  *bool   `json:"version_pin_patch,omitempty"`
-	TagRegex         *string `json:"tag_regex,omitempty"`
-	VersionMin       *string `json:"version_min,omitempty"`
-	VersionMax       *string `json:"version_max,omitempty"`
-	Script           *string `json:"script,omitempty"`
-	RestartAfter *string `json:"restart_after,omitempty"`
-	Notify           *bool   `json:"notify,omitempty"`
-	NotifyDigest     *bool   `json:"notify_digest,omitempty"`
-	NotifyLevel      *string `json:"notify_level,omitempty"`
-	NoRestart        bool    `json:"no_restart,omitempty"`
-	Force            bool    `json:"force,omitempty"`
+	Container       string   `json:"container"`
+	Ignore          *bool    `json:"ignore,omitempty"`
+	AllowLatest     *bool    `json:"allow_latest,omitempty"`
+	AllowPrerelease *bool    `json:"allow_prerelease,omitempty"`
+	VersionPinMajor *bool    `json:"version_pin_major,omitempty"`
+	VersionPinMinor *bool    `json:"version_pin_minor,omitempty"`
+	VersionPinPatch *bool    `json:"version_pin_patch,omitempty"`
+	TagRegex        *string  `json:"tag_regex,omitempty"`
+	VersionMin      *string  `json:"version_min,omitempty"`
+	VersionMax      *string  `json:"version_max,omitempty"`
+	Script          *string  `json:"script,omitempty"`
+	RestartAfter    *string  `json:"restart_after,omitempty"`
+	Notify          *bool    `json:"notify,omitempty"`
+	NotifyDigest    *bool    `json:"notify_digest,omitempty"`
+	NotifyLevel     *string  `json:"notify_level,omitempty"`
+	RemoveLabels    []string `json:"remove_labels,omitempty"`
+	NoRestart       bool     `json:"no_restart,omitempty"`
+	Force           bool     `json:"force,omitempty"`
 }
 
 // RemoveLabelsRequest represents a request to remove labels
@@ -134,8 +136,13 @@ func (s *Server) handleLabelsSet(w http.ResponseWriter, r *http.Request) {
 	if req.Ignore == nil && req.AllowLatest == nil && req.AllowPrerelease == nil && req.VersionPinMajor == nil && req.VersionPinMinor == nil && req.VersionPinPatch == nil &&
 		req.TagRegex == nil && req.VersionMin == nil && req.VersionMax == nil &&
 		req.Script == nil && req.RestartAfter == nil &&
-		req.Notify == nil && req.NotifyDigest == nil && req.NotifyLevel == nil {
+		req.Notify == nil && req.NotifyDigest == nil && req.NotifyLevel == nil && len(req.RemoveLabels) == 0 {
 		RespondBadRequest(w, fmt.Errorf("no labels specified"))
+		return
+	}
+
+	if err := validateRemoveLabels(req.RemoveLabels); err != nil {
+		RespondBadRequest(w, err)
 		return
 	}
 
@@ -396,7 +403,7 @@ func (s *Server) setLabelsWithConfig(ctx context.Context, req *SetLabelsRequest,
 		batchGroupID:  batchGroupID,
 	}, func(service *compose.Service) (map[string]string, []string, error) {
 		modified, err := applyLabelChanges(service, req)
-		return modified, nil, err
+		return modified, req.RemoveLabels, err
 	})
 }
 
@@ -414,6 +421,10 @@ func validateNotifyLevel(level string) error {
 // and returns the labels that were modified.
 func applyLabelChanges(service *compose.Service, req *SetLabelsRequest) (map[string]string, error) {
 	// Validate before mutating any label
+	if err := validateRemoveLabels(req.RemoveLabels); err != nil {
+		return nil, err
+	}
+
 	if req.NotifyLevel != nil {
 		if err := validateNotifyLevel(*req.NotifyLevel); err != nil {
 			return nil, err
@@ -421,6 +432,12 @@ func applyLabelChanges(service *compose.Service, req *SetLabelsRequest) (map[str
 	}
 
 	modified := make(map[string]string)
+	// Removals share the same load/modify/save as the sets below
+	for _, name := range req.RemoveLabels {
+		if err := service.RemoveLabel(name); err != nil {
+			return nil, fmt.Errorf("failed to remove label %s: %w", name, err)
+		}
+	}
 
 	// Apply boolean label updates
 	boolLabels := []struct {
@@ -689,9 +706,9 @@ func applyStringLabel(service *compose.Service, labelKey string, value *string) 
 
 // LabelRollbackRequest represents a request to rollback label changes
 type LabelRollbackRequest struct {
-	BatchGroupID   string   `json:"batch_group_id,omitempty"`    // Rollback all operations in this batch
-	OperationIDs   []string `json:"operation_ids,omitempty"`     // Rollback specific operations
-	ContainerNames []string `json:"container_names,omitempty"`   // Rollback specific containers within a batch
+	BatchGroupID   string   `json:"batch_group_id,omitempty"`  // Rollback all operations in this batch
+	OperationIDs   []string `json:"operation_ids,omitempty"`   // Rollback specific operations
+	ContainerNames []string `json:"container_names,omitempty"` // Rollback specific containers within a batch
 	Force          bool     `json:"force,omitempty"`
 }
 
@@ -993,4 +1010,14 @@ func (s *Server) handleBatchLabels(w http.ResponseWriter, r *http.Request) {
 		"results":        results,
 		"batch_group_id": batchGroupID,
 	})
+}
+
+// validateRemoveLabels checks every name is a label docksmith manages.
+func validateRemoveLabels(names []string) error {
+	for _, name := range names {
+		if !slices.Contains(docksmithLabels, name) {
+			return fmt.Errorf("cannot remove label %q: not a docksmith label", name)
+		}
+	}
+	return nil
 }

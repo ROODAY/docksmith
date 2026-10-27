@@ -11,7 +11,6 @@ import {
   startRestart,
   startStackRestart,
   setLabels as setLabelsAPI,
-  removeLabels as removeLabelsAPI,
   fixComposeMismatch,
 } from '../../api/client';
 import { addLog } from './log';
@@ -50,34 +49,16 @@ export class SSETrackedExecutor implements OperationExecutor {
           addLog(dispatch, runId, `Saving settings for ${containerName}...`, 'stage', 'fa-floppy-disk');
         }
 
-        const { remove_labels: removeNames, ...setChanges } = labelChanges;
-        const hasSetChanges = Object.keys(setChanges).length > 0;
-        let opId: string | undefined;
+        const saveResponse = await setLabelsAPI(containerName, {
+          ...labelChanges,
+          force,
+        });
 
-        // Removals (e.g. back to "use global") go through the remove endpoint first
-        if (removeNames && removeNames.length > 0) {
-          const removeResponse = await removeLabelsAPI(containerName, removeNames, {
-            no_restart: hasSetChanges,
-            force,
-          });
-          if (!removeResponse.success) {
-            throw new Error(removeResponse.error || 'Failed to remove labels');
-          }
-          opId = removeResponse.data?.operation_id;
+        if (!saveResponse.success) {
+          throw new Error(saveResponse.error || 'Failed to save settings');
         }
 
-        if (hasSetChanges || !(removeNames && removeNames.length > 0)) {
-          const saveResponse = await setLabelsAPI(containerName, {
-            ...setChanges,
-            force,
-          });
-
-          if (!saveResponse.success) {
-            throw new Error(saveResponse.error || 'Failed to save settings');
-          }
-          opId = saveResponse.data?.operation_id ?? opId;
-        }
-
+        const opId = saveResponse.data?.operation_id;
         if (opId) {
           dispatch({ type: 'SET_OPERATION_ID', runId, operationId: opId });
           setSearchParams({ id: opId }, { replace: true });

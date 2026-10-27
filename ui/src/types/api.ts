@@ -239,6 +239,7 @@ export interface SetLabelsRequest {
   notify?: boolean;
   notify_level?: string;
   notify_digest?: boolean;
+  remove_labels?: string[];
   no_restart?: boolean;
   force?: boolean;
 }

@@ -125,3 +125,70 @@ func TestSetLabels_NotifyLevelValidation(t *testing.T) {
 		}
 	})
 }
+
+func TestSetLabels_RemoveLabels(t *testing.T) {
+	t.Run("non-docksmith name returns 400", func(t *testing.T) {
+		s := &Server{}
+		body := strings.NewReader(`{"container":"web","remove_labels":["com.example.other"]}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/labels/set", body)
+		rec := httptest.NewRecorder()
+		s.handleLabelsSet(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("remove_labels alone passes the no-labels guard", func(t *testing.T) {
+		s := &Server{}
+		body := strings.NewReader(`{"container":"web","remove_labels":["bogus"]}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/labels/set", body)
+		rec := httptest.NewRecorder()
+		s.handleLabelsSet(rec, req)
+		if strings.Contains(rec.Body.String(), "no labels specified") {
+			t.Fatalf("remove_labels should count as a label change: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("set and remove apply in one change", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "docker-compose.yml")
+		yml := `services:
+  web:
+    image: nginx:1.25
+    container_name: web
+    labels:
+      docksmith.notify-digest: "true"
+`
+		if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cf, err := compose.LoadComposeFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := cf.FindServiceByContainerName("web")
+		if err != nil {
+			t.Fatal(err)
+		}
+		level := "minor"
+		modified, err := applyLabelChanges(service, &SetLabelsRequest{
+			NotifyLevel:  &level,
+			RemoveLabels: []string{scripts.NotifyDigestLabel},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if modified[scripts.NotifyLevelLabel] != "minor" {
+			t.Errorf("expected notify-level=minor in modified, got %v", modified)
+		}
+		labels, err := service.GetAllLabels()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if labels[scripts.NotifyLevelLabel] != "minor" {
+			t.Errorf("notify-level = %q, want minor", labels[scripts.NotifyLevelLabel])
+		}
+		if _, ok := labels[scripts.NotifyDigestLabel]; ok {
+			t.Errorf("notify-digest should have been removed, labels: %v", labels)
+		}
+	})
+}
