@@ -112,7 +112,8 @@ function mergeContainerData(
   return { containers, containerStacks, standaloneContainers };
 }
 
-export function useContainersData(): ContainersDataResult {
+export function useContainersData(options: { includeVolumeSizes?: boolean } = {}): ContainersDataResult {
+  const { includeVolumeSizes = false } = options;
   const [loading, setLoading] = useState(() => !getSnapshot()?.explorer);
   const [error, setError] = useState<string | null>(null);
   const [explorerData, setExplorerData] = useState<ExplorerData | null>(() => getSnapshot()?.explorer ?? null);
@@ -135,7 +136,7 @@ export function useContainersData(): ContainersDataResult {
   // Fetch both data sources in parallel. They settle independently; the explorer
   // request alone owns the loading gate, and status is optional on top of it.
   const fetchData = useCallback(async () => {
-    const explorerPromise = getExplorerData()
+    const explorerPromise = getExplorerData({ includeVolumeSizes })
       .then(res => {
         if (res.success && res.data) {
           setExplorerData(res.data);
@@ -161,7 +162,7 @@ export function useContainersData(): ContainersDataResult {
       .catch(() => { /* status is optional; explorer already carries the list */ });
 
     await Promise.allSettled([explorerPromise, statusPromise]);
-  }, []);
+  }, [includeVolumeSizes]);
 
   // Background refresh — trigger background check, wait for it to complete, then fetch cached data.
   // Polls /api/status until checking=false and lastBackgroundRun advances past the trigger time,
@@ -191,7 +192,7 @@ export function useContainersData(): ContainersDataResult {
       }
       if (!mountedRef.current) return;
 
-      const explorerRes = await getExplorerData();
+      const explorerRes = await getExplorerData({ includeVolumeSizes });
       let resolvedStatus: DiscoveryResult | null = finalStatus;
       let statusOk = finalStatus !== null;
       if (!resolvedStatus) {
@@ -215,7 +216,7 @@ export function useContainersData(): ContainersDataResult {
       if (!mountedRef.current) return;
       console.error('Background refresh failed:', err);
     }
-  }, []);
+  }, [includeVolumeSizes]);
 
   const startRefresh = useCallback(() => {
     if (!mountedRef.current) return Promise.resolve();
@@ -250,7 +251,7 @@ export function useContainersData(): ContainersDataResult {
     setError(null);
     try {
       const [explorerRes, statusRes] = await Promise.all([
-        getExplorerData(),
+        getExplorerData({ includeVolumeSizes }),
         checkContainers(),
       ]);
       if (explorerRes.success && explorerRes.data) {
@@ -269,12 +270,28 @@ export function useContainersData(): ContainersDataResult {
     } finally {
       setLoading(false);
     }
-  }, [explorerData]);
+  }, [explorerData, includeVolumeSizes]);
 
-  // Initial load
+  // Initial load. Runs once; refetches caused by a change of includeVolumeSizes
+  // are handled by the effect below, so guard here to avoid a duplicate fetch.
+  const didInitialFetch = useRef(false);
   useEffect(() => {
+    if (didInitialFetch.current) return;
+    didInitialFetch.current = true;
     fetchData();
   }, [fetchData]);
+
+  // Refetch when the volume-sizes option changes (e.g. switching to the Volumes
+  // tab). Skips the initial mount: the initial load above already fetched, and a
+  // second request on mount would double the cost of this hook.
+  const mountedOnce = useRef(false);
+  useEffect(() => {
+    if (!mountedOnce.current) {
+      mountedOnce.current = true;
+      return;
+    }
+    fetchData();
+  }, [includeVolumeSizes, fetchData]);
 
   // Periodic background refresh (every 60 seconds)
   usePeriodicRefresh(backgroundRefresh, 60000, true, () => loading);
@@ -293,9 +310,13 @@ export function useContainersData(): ContainersDataResult {
     };
   }, [backgroundRefresh]);
 
-  // Auto-refresh on container updated events
+  // Auto-refresh on container updated events. Guard on event identity: the
+  // callbacks below change identity when includeVolumeSizes changes, and
+  // re-running this effect for an old event would refetch on every tab switch.
+  const handledContainerUpdate = useRef<typeof containerUpdated>(null);
   useEffect(() => {
-    if (!containerUpdated) return;
+    if (!containerUpdated || handledContainerUpdate.current === containerUpdated) return;
+    handledContainerUpdate.current = containerUpdated;
     if (containerUpdated.status === 'updated') {
       backgroundRefresh(true);
     } else {
