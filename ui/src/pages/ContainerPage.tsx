@@ -13,6 +13,8 @@ import { getRegistryUrl } from '../utils/registry';
 import { useToast } from '../components/Toast';
 import { Tooltip } from '../components/shared';
 import { ansiToHtml } from '../utils/ansi';
+import { getCachedInspect, setCachedInspect } from '../api/snapshot';
+import { useEventStream } from '../context/EventStreamContext';
 import '../styles/container-page.css';
 
 type TabId = 'overview' | 'config' | 'logs' | 'inspect';
@@ -41,6 +43,7 @@ export function ContainerPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+  const { reconnecting } = useEventStream();
 
   // Get initial tab from location state
   const initialTab = (location.state as { tab?: TabId })?.tab || 'overview';
@@ -52,9 +55,9 @@ export function ContainerPage() {
   }, [navigate]);
 
   // Core state
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !getCachedInspect(containerName));
   const [error, setError] = useState<string | null>(null);
-  const [inspectData, setInspectData] = useState<ContainerInspect | null>(null);
+  const [inspectData, setInspectData] = useState<ContainerInspect | null>(() => getCachedInspect(containerName));
   const [docksmithData, setDocksmithData] = useState<ContainerInfo | null>(null);
 
   // Logs state
@@ -141,6 +144,7 @@ export function ContainerPage() {
     try {
       const response = await inspectContainer(containerName);
       if (response.success && response.data) {
+        setCachedInspect(containerName, response.data);
         setInspectData(response.data);
         setError(null);
       } else {
@@ -222,6 +226,23 @@ export function ContainerPage() {
       console.error('Failed to fetch Docksmith data:', err);
     }
   }, [containerName]);
+
+  // Reseed from the cache when navigating between containers
+  useEffect(() => {
+    const cached = getCachedInspect(containerName);
+    setInspectData(cached);
+    setLoading(!cached);
+    setError(null);
+    setDocksmithData(null);
+  }, [containerName]);
+
+  // Retry in place instead of reloading the page
+  const retry = useCallback(() => {
+    setError(null);
+    setLoading(!getCachedInspect(containerName));
+    fetchInspect();
+    fetchDocksmithData();
+  }, [containerName, fetchInspect, fetchDocksmithData]);
 
   // Ref to hold the streaming AbortController so we can cancel from anywhere
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -563,6 +584,12 @@ export function ContainerPage() {
           <div className="loading-spinner">
             <i className="fa-solid fa-circle-notch fa-spin"></i>
           </div>
+          <p className="loading-hint">
+            {reconnecting
+              ? 'Reconnecting to Docksmith — the page will fill in when it responds.'
+              : 'Waiting for a response from Docksmith…'}
+          </p>
+          <button className="retry-btn" onClick={retry}>Retry now</button>
         </main>
       </div>
     );
@@ -584,7 +611,7 @@ export function ContainerPage() {
           <div className="error-state">
             <i className="fa-solid fa-triangle-exclamation"></i>
             <p>{error}</p>
-            <button onClick={() => window.location.reload()}>Retry</button>
+            <button onClick={retry}>Retry</button>
           </div>
         </main>
       </div>
@@ -610,6 +637,12 @@ export function ContainerPage() {
             </span>
             {getStatusBadge()}
             {getChangeTypeBadge()}
+            {reconnecting && (
+              <div className="connection-status reconnecting" title="Reconnecting...">
+                <i className="fa-solid fa-wifi fa-fade"></i>
+                <span>Reconnecting...</span>
+              </div>
+            )}
           </div>
         </div>
         <div className="header-actions">
