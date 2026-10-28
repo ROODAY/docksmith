@@ -11,6 +11,7 @@ import type { ContainerInspect, ContainerInfo } from '../types/api';
 import { ChangeType, getChangeTypeName } from '../types/api';
 import { getRegistryUrl } from '../utils/registry';
 import { useToast } from '../components/Toast';
+import { Tooltip } from '../components/shared';
 import { ansiToHtml } from '../utils/ansi';
 import '../styles/container-page.css';
 
@@ -551,9 +552,11 @@ export function ContainerPage() {
     return (
       <div className="container-page">
         <header>
-          <button className="back-btn" onClick={handleBack}>
-            <i className="fa-solid fa-chevron-left"></i>
-          </button>
+          <Tooltip label="Back" placement="bottom" align="start">
+            <button className="back-btn" onClick={handleBack}>
+              <i className="fa-solid fa-chevron-left"></i>
+            </button>
+          </Tooltip>
           <h1>{containerName}</h1>
         </header>
         <main className="main-loading">
@@ -570,9 +573,11 @@ export function ContainerPage() {
     return (
       <div className="container-page">
         <header>
-          <button className="back-btn" onClick={handleBack}>
-            <i className="fa-solid fa-chevron-left"></i>
-          </button>
+          <Tooltip label="Back" placement="bottom" align="start">
+            <button className="back-btn" onClick={handleBack}>
+              <i className="fa-solid fa-chevron-left"></i>
+            </button>
+          </Tooltip>
           <h1>{containerName}</h1>
         </header>
         <main>
@@ -591,9 +596,11 @@ export function ContainerPage() {
   return (
     <div className="container-page">
       <header>
-        <button className="back-btn" onClick={handleBack}>
-          <i className="fa-solid fa-chevron-left"></i>
-        </button>
+        <Tooltip label="Back" placement="bottom" align="start">
+          <button className="back-btn" onClick={handleBack}>
+            <i className="fa-solid fa-chevron-left"></i>
+          </button>
+        </Tooltip>
         <div className="header-info">
           <h1>{containerName}</h1>
           <div className="header-badges">
@@ -608,61 +615,61 @@ export function ContainerPage() {
         <div className="header-actions">
           {isRunning ? (
             <>
-              <button
-                className="action-btn"
-                onClick={() => handleAction('stop')}
-
-                title="Stop"
-              >
-                <i className="fa-solid fa-stop"></i>
-              </button>
-              <button
-                className="action-btn"
-                onClick={() => handleAction('restart')}
-
-                title="Restart"
-              >
-                <i className="fa-solid fa-rotate"></i>
-              </button>
+              <Tooltip label="Stop container" placement="bottom" align="end">
+                <button
+                  className="action-btn"
+                  onClick={() => handleAction('stop')}
+                >
+                  <i className="fa-solid fa-stop"></i>
+                </button>
+              </Tooltip>
+              <Tooltip label="Restart container" placement="bottom" align="end">
+                <button
+                  className="action-btn"
+                  onClick={() => handleAction('restart')}
+                >
+                  <i className="fa-solid fa-rotate"></i>
+                </button>
+              </Tooltip>
             </>
           ) : (
-            <button
-              className="action-btn"
-              onClick={() => handleAction('start')}
-
-              title="Start"
-            >
-              <i className="fa-solid fa-play"></i>
-            </button>
+            <Tooltip label="Start container" placement="bottom" align="end">
+              <button
+                className="action-btn"
+                onClick={() => handleAction('start')}
+              >
+                <i className="fa-solid fa-play"></i>
+              </button>
+            </Tooltip>
           )}
           {confirmRemove ? (
             <div className="confirm-remove">
-              <button
-                className="action-btn danger"
-                onClick={handleRemove}
-
-                title="Confirm remove"
-              >
-                <i className="fa-solid fa-check"></i>
-              </button>
-              <button
-                className="action-btn"
-                onClick={() => setConfirmRemove(false)}
-
-                title="Cancel"
-              >
-                <i className="fa-solid fa-xmark"></i>
-              </button>
+              <Tooltip label="Confirm remove" placement="bottom" align="end">
+                <button
+                  className="action-btn danger"
+                  onClick={handleRemove}
+                >
+                  <i className="fa-solid fa-check"></i>
+                </button>
+              </Tooltip>
+              <Tooltip label="Cancel remove" placement="bottom" align="end">
+                <button
+                  className="action-btn"
+                  onClick={() => setConfirmRemove(false)}
+                >
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+              </Tooltip>
             </div>
           ) : (
-            <button
-              className="action-btn danger"
-              onClick={() => setConfirmRemove(true)}
-
-              title="Remove"
-            >
-              <i className="fa-solid fa-trash"></i>
-            </button>
+            <Tooltip label="Remove container" placement="bottom" align="end">
+              <button
+                className="action-btn danger"
+                onClick={() => setConfirmRemove(true)}
+              >
+                <i className="fa-solid fa-trash"></i>
+              </button>
+            </Tooltip>
           )}
         </div>
       </header>
@@ -1104,20 +1111,23 @@ export function ContainerPage() {
               <div className="error-banner">
                 <i className="fa-solid fa-triangle-exclamation"></i>
                 <span>{error}</span>
-                <button onClick={() => setError(null)}>×</button>
+                <Tooltip label="Dismiss error" placement="bottom" align="end">
+                  <button onClick={() => setError(null)}>×</button>
+                </Tooltip>
               </div>
             )}
 
             <div className="settings-grid">
               {/* Ignore Flag */}
               <div className="checkbox-row">
-                <button
-                  className="help-btn"
-                  onClick={() => setActiveHelp(activeHelp === 'ignore' ? null : 'ignore')}
-                  aria-label="Help for Ignore Container"
-                >
-                  <i className="fa-solid fa-circle-question"></i>
-                </button>
+                <Tooltip label="Help: Ignore container" placement="bottom" align="end">
+                  <button
+                    className="help-btn"
+                    onClick={() => setActiveHelp(activeHelp === 'ignore' ? null : 'ignore')}
+                  >
+                    <i className="fa-solid fa-circle-question"></i>
+                  </button>
+                </Tooltip>
                 <label className="row-label-area">
                   <span className="row-label">Ignore Container</span>
                   <input
@@ -1136,13 +1146,14 @@ export function ContainerPage() {
 
               {/* Allow Latest Flag */}
               <div className="checkbox-row">
-                <button
-                  className="help-btn"
-                  onClick={() => setActiveHelp(activeHelp === 'allowLatest' ? null : 'allowLatest')}
-                  aria-label="Help for Allow Latest Tag"
-                >
-                  <i className="fa-solid fa-circle-question"></i>
-                </button>
+                <Tooltip label="Help: Allow latest tag" placement="bottom" align="end">
+                  <button
+                    className="help-btn"
+                    onClick={() => setActiveHelp(activeHelp === 'allowLatest' ? null : 'allowLatest')}
+                  >
+                    <i className="fa-solid fa-circle-question"></i>
+                  </button>
+                </Tooltip>
                 <label className="row-label-area">
                   <span className="row-label">Allow :latest Tag</span>
                   <input
@@ -1162,13 +1173,14 @@ export function ContainerPage() {
               {/* Version Pin */}
               <div className="setting-item segmented-row">
                 <div className="setting-label-with-help">
-                  <button
-                    className="help-btn"
-                    onClick={() => setActiveHelp(activeHelp === 'versionPin' ? null : 'versionPin')}
-                    aria-label="Help for Version Pin"
-                  >
-                    <i className="fa-solid fa-circle-question"></i>
-                  </button>
+                  <Tooltip label="Help: Version pin" placement="bottom" align="end">
+                    <button
+                      className="help-btn"
+                      onClick={() => setActiveHelp(activeHelp === 'versionPin' ? null : 'versionPin')}
+                    >
+                      <i className="fa-solid fa-circle-question"></i>
+                    </button>
+                  </Tooltip>
                   <span className="nav-title">Pin to Version</span>
                 </div>
                 <div className="segmented-control">
@@ -1192,16 +1204,17 @@ export function ContainerPage() {
 
               {/* Tag Filter */}
               <div className="setting-item nav-row-with-help">
-                <button
-                  className="help-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveHelp(activeHelp === 'tagFilter' ? null : 'tagFilter');
-                  }}
-                  aria-label="Help for Tag Filter"
-                >
-                  <i className="fa-solid fa-circle-question"></i>
-                </button>
+                <Tooltip label="Help: Tag filter" placement="bottom" align="end">
+                  <button
+                    className="help-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveHelp(activeHelp === 'tagFilter' ? null : 'tagFilter');
+                    }}
+                  >
+                    <i className="fa-solid fa-circle-question"></i>
+                  </button>
+                </Tooltip>
                 <div
                   className="nav-row-content"
                   onClick={() => navigate(`/container/${containerName}/tag-filter`, { state: {
@@ -1229,13 +1242,14 @@ export function ContainerPage() {
 
               {/* Notifications */}
               <div className="checkbox-row">
-                <button
-                  className="help-btn"
-                  onClick={() => setActiveHelp(activeHelp === 'notify' ? null : 'notify')}
-                  aria-label="Help for Notifications"
-                >
-                  <i className="fa-solid fa-circle-question"></i>
-                </button>
+                <Tooltip label="Help: Notifications" placement="bottom" align="end">
+                  <button
+                    className="help-btn"
+                    onClick={() => setActiveHelp(activeHelp === 'notify' ? null : 'notify')}
+                  >
+                    <i className="fa-solid fa-circle-question"></i>
+                  </button>
+                </Tooltip>
                 <label className="row-label-area">
                   <span className="row-label">Notifications</span>
                   <input
@@ -1254,13 +1268,14 @@ export function ContainerPage() {
 
               <div className="setting-item segmented-row">
                 <div className="setting-label-with-help">
-                  <button
-                    className="help-btn"
-                    onClick={() => setActiveHelp(activeHelp === 'notifyLevel' ? null : 'notifyLevel')}
-                    aria-label="Help for Notification Level"
-                  >
-                    <i className="fa-solid fa-circle-question"></i>
-                  </button>
+                  <Tooltip label="Help: Notification level" placement="bottom" align="end">
+                    <button
+                      className="help-btn"
+                      onClick={() => setActiveHelp(activeHelp === 'notifyLevel' ? null : 'notifyLevel')}
+                    >
+                      <i className="fa-solid fa-circle-question"></i>
+                    </button>
+                  </Tooltip>
                   <label htmlFor="notify-level-select" className="nav-title">Notification Level</label>
                 </div>
                 <select
@@ -1286,13 +1301,14 @@ export function ContainerPage() {
 
               <div className="setting-item segmented-row">
                 <div className="setting-label-with-help">
-                  <button
-                    className="help-btn"
-                    onClick={() => setActiveHelp(activeHelp === 'notifyDigest' ? null : 'notifyDigest')}
-                    aria-label="Help for Digest Notifications"
-                  >
-                    <i className="fa-solid fa-circle-question"></i>
-                  </button>
+                  <Tooltip label="Help: Digest notifications" placement="bottom" align="end">
+                    <button
+                      className="help-btn"
+                      onClick={() => setActiveHelp(activeHelp === 'notifyDigest' ? null : 'notifyDigest')}
+                    >
+                      <i className="fa-solid fa-circle-question"></i>
+                    </button>
+                  </Tooltip>
                   <label htmlFor="notify-digest-select" className="nav-title">Digest Notifications</label>
                 </div>
                 <select
@@ -1316,16 +1332,17 @@ export function ContainerPage() {
 
               {/* Pre-Update Script */}
               <div className="setting-item precheck-row-with-help">
-                <button
-                  className="help-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveHelp(activeHelp === 'preUpdateScript' ? null : 'preUpdateScript');
-                  }}
-                  aria-label="Help for Pre-Update Script"
-                >
-                  <i className="fa-solid fa-circle-question"></i>
-                </button>
+                <Tooltip label="Help: Pre-update script" placement="bottom" align="end">
+                  <button
+                    className="help-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveHelp(activeHelp === 'preUpdateScript' ? null : 'preUpdateScript');
+                    }}
+                  >
+                    <i className="fa-solid fa-circle-question"></i>
+                  </button>
+                </Tooltip>
                 <div
                   className="precheck-nav-area"
                   onClick={() => navigate(`/container/${containerName}/script-selection`, { state: {
@@ -1355,17 +1372,18 @@ export function ContainerPage() {
                   </span>
                 </div>
                 {(selectedScript || docksmithData?.pre_update_check) && (
-                  <button
-                    className="precheck-refresh-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRefreshPrecheck();
-                    }}
-                    disabled={refreshingPrecheck}
-                    title="Re-run pre-update check"
-                  >
-                    <i className={`fa-solid fa-rotate-right ${refreshingPrecheck ? 'spinning' : ''}`}></i>
-                  </button>
+                  <Tooltip label="Re-run pre-update check" placement="bottom" align="end">
+                    <button
+                      className="precheck-refresh-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRefreshPrecheck();
+                      }}
+                      disabled={refreshingPrecheck}
+                    >
+                      <i className={`fa-solid fa-rotate-right ${refreshingPrecheck ? 'spinning' : ''}`}></i>
+                    </button>
+                  </Tooltip>
                 )}
               </div>
               {activeHelp === 'preUpdateScript' && (
@@ -1377,16 +1395,17 @@ export function ContainerPage() {
 
               {/* Restart Dependencies */}
               <div className="setting-item nav-row-with-help">
-                <button
-                  className="help-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveHelp(activeHelp === 'restartDeps' ? null : 'restartDeps');
-                  }}
-                  aria-label="Help for Restart Dependencies"
-                >
-                  <i className="fa-solid fa-circle-question"></i>
-                </button>
+                <Tooltip label="Help: Restart dependencies" placement="bottom" align="end">
+                  <button
+                    className="help-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveHelp(activeHelp === 'restartDeps' ? null : 'restartDeps');
+                    }}
+                  >
+                    <i className="fa-solid fa-circle-question"></i>
+                  </button>
+                </Tooltip>
                 <div
                   className="nav-row-content"
                   onClick={() => navigate(`/container/${containerName}/restart-dependencies`, { state: {
@@ -1473,12 +1492,16 @@ export function ContainerPage() {
                 </label>
               </div>
               <div className="logs-actions">
-                <button onClick={() => fetchLogs(true)} disabled={logsLoading} title="Refresh">
-                  <i className={`fa-solid fa-rotate ${logsLoading ? 'fa-spin' : ''}`}></i>
-                </button>
-                <button onClick={downloadLogs} title="Download">
-                  <i className="fa-solid fa-download"></i>
-                </button>
+                <Tooltip label="Refresh logs" placement="bottom" align="end">
+                  <button onClick={() => fetchLogs(true)} disabled={logsLoading}>
+                    <i className={`fa-solid fa-rotate ${logsLoading ? 'fa-spin' : ''}`}></i>
+                  </button>
+                </Tooltip>
+                <Tooltip label="Download logs" placement="bottom" align="end">
+                  <button onClick={downloadLogs}>
+                    <i className="fa-solid fa-download"></i>
+                  </button>
+                </Tooltip>
               </div>
             </div>
             <div className="logs-viewer" ref={logsViewerRef} onScroll={handleLogsScroll}>
@@ -1488,13 +1511,14 @@ export function ContainerPage() {
                 }}
               />
             </div>
-            <button
-              className={`logs-scroll-btn ${showScrollButton ? 'visible' : ''}`}
-              onClick={scrollToBottom}
-              title="Scroll to bottom"
-            >
-              <i className="fa-solid fa-arrow-down"></i>
-            </button>
+            <Tooltip label="Scroll to bottom" placement="top" align="end">
+              <button
+                className={`logs-scroll-btn ${showScrollButton ? 'visible' : ''}`}
+                onClick={scrollToBottom}
+              >
+                <i className="fa-solid fa-arrow-down"></i>
+              </button>
+            </Tooltip>
           </div>
         )}
 

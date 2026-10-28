@@ -1424,6 +1424,9 @@
   pointer-events: auto;
 }
 
+.container-page .logs-scroll-btn { visibility: hidden; }
+.container-page .logs-scroll-btn.visible { visibility: visible; }
+
 .container-page .logs-scroll-btn:hover {
   background: var(--color-accent-bright);
   transform: scale(1.1);
