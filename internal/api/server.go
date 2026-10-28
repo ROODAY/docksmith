@@ -42,6 +42,7 @@ type Server struct {
 	notifier              *notify.Notifier    // nil when notifyStore is nil
 	notifyCtx             context.Context
 	notifyCancel          context.CancelFunc
+	explorerCache         *explorerCache
 
 	// shutdownCh is closed on shutdown so long-lived SSE handlers return and
 	// httpServer.Shutdown does not wait out its whole deadline.
@@ -172,6 +173,7 @@ func NewServer(cfg Config) *Server {
 		notifier:              notifier,
 		notifyCtx:             notifyCtx,
 		notifyCancel:          notifyCancel,
+		explorerCache:         newExplorerCache(explorerCacheTTL),
 		shutdownCh:            make(chan struct{}),
 	}
 
