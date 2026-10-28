@@ -80,3 +80,21 @@ func TestRender_RejectsBaseURLWithQueryOrFragment(t *testing.T) {
 		}
 	}
 }
+
+func TestRender_SummaryIncludesLinks(t *testing.T) {
+	evs := []Event{
+		{Kind: EventNewVersion, Container: "sonarr", FromVersion: "4.0.10", ToVersion: "4.0.11"},
+		{Kind: EventNewVersion, Container: "cloudflare-ddns", FromVersion: "2.3.0", ToVersion: "2.3.1"},
+	}
+	m := Render(Settings{BaseURL: "https://docksmith.example.com"}, evs, true)
+
+	for _, name := range []string{"sonarr", "cloudflare-ddns"} {
+		want := "https://docksmith.example.com/container/" + name
+		if !strings.Contains(m.HTML, `href="`+want+`"`) {
+			t.Fatalf("summary HTML missing link for %s:\n%s", name, m.HTML)
+		}
+		if !strings.Contains(m.Text, want) {
+			t.Fatalf("summary text missing link for %s:\n%s", name, m.Text)
+		}
+	}
+}
