@@ -53,8 +53,8 @@ const SERVICE_TYPES: { type: string; label: string; fields: FieldDef[] }[] = [
       { key: 'username', label: 'Username' },
       { key: 'password', label: 'Password', secret: true },
       { key: 'encryption', label: 'Encryption', options: ['', 'none', 'starttls', 'tls'] },
-      { key: 'from', label: 'From', required: true },
-      { key: 'to', label: 'To', required: true },
+      { key: 'from', label: 'From', required: true, placeholder: 'Docksmith <docksmith@example.com>' },
+      { key: 'to', label: 'To', required: true, placeholder: 'you@example.com, Name <other@example.com>' },
     ],
   },
   {

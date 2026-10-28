@@ -2,6 +2,7 @@ package notify
 
 import (
 	"fmt"
+	"net/mail"
 	"net/url"
 	"regexp"
 	"strings"
@@ -67,6 +68,12 @@ func ValidateServiceConfig(serviceType string, cfg map[string]string) error {
 		case "", "none", "starttls", "tls":
 		default:
 			return fmt.Errorf("smtp: invalid encryption %q (want none, starttls or tls)", cfg["encryption"])
+		}
+		if _, err := mail.ParseAddress(cfg["from"]); err != nil {
+			return fmt.Errorf("smtp: invalid from address %q (use addr@example.com or Name <addr@example.com>)", cfg["from"])
+		}
+		if _, err := mail.ParseAddressList(cfg["to"]); err != nil {
+			return fmt.Errorf("smtp: invalid to address list %q (comma-separated addresses, names optional)", cfg["to"])
 		}
 	}
 	return nil
@@ -206,10 +213,28 @@ func buildSMTP(cfg map[string]string) (string, error) {
 		q.Set("encryption", "ExplicitTLS")
 		q.Set("usestarttls", "yes")
 	}
-	q.Set("fromaddress", cfg["from"])
-	q.Set("toaddresses", cfg["to"])
+	// Shoutrrr uses fromaddress/toaddresses verbatim for MAIL FROM/RCPT TO, so
+	// "Name <addr>" is split into the bare address and (for the sender) fromname.
+	from, err := mail.ParseAddress(cfg["from"])
+	if err != nil {
+		return "", fmt.Errorf("smtp: invalid from address %q: %w", cfg["from"], err)
+	}
+	to, err := mail.ParseAddressList(cfg["to"])
+	if err != nil {
+		return "", fmt.Errorf("smtp: invalid to address list %q: %w", cfg["to"], err)
+	}
+	recipients := make([]string, len(to))
+	for i, a := range to {
+		recipients[i] = a.Address
+	}
+	q.Set("fromaddress", from.Address)
+	if from.Name != "" {
+		q.Set("fromname", from.Name)
+	}
+	q.Set("toaddresses", strings.Join(recipients, ","))
 	q.Set("usehtml", "yes")
-	u.RawQuery = q.Encode()
+	// Shoutrrr does not decode "+" as a space, so spaces must be %20.
+	u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20")
 	return u.String(), nil
 }
 

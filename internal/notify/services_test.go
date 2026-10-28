@@ -134,6 +134,34 @@ func mustURL(t *testing.T, typ string, cfg map[string]string) *url.URL {
 	return u
 }
 
+// Shoutrrr uses fromaddress/toaddresses verbatim for MAIL FROM/RCPT TO, so
+// "Name <addr>" must be split: the address there, the sender name in fromname.
+func TestBuildURL_SMTPDisplayNames(t *testing.T) {
+	cfg := map[string]string{
+		"host": "email-smtp.us-west-2.amazonaws.com", "port": "587", "encryption": "starttls",
+		"from": "Engager Docksmith <docksmith@mail.rooday.com>",
+		"to":   "Rudhra Raveendran <contact@roo.day>, ops@example.com",
+	}
+	raw, err := BuildURL("smtp", cfg)
+	require.NoError(t, err)
+	u, err := url.Parse(raw)
+	require.NoError(t, err)
+	q := u.Query()
+	assert.Equal(t, "docksmith@mail.rooday.com", q.Get("fromaddress"))
+	assert.Equal(t, "Engager Docksmith", q.Get("fromname"))
+	assert.Equal(t, "contact@roo.day,ops@example.com", q.Get("toaddresses"))
+	assert.NotContains(t, u.RawQuery, "+", "spaces must be escaped as %20; shoutrrr does not decode +")
+	_, err = shoutrrr.CreateSender(raw)
+	require.NoError(t, err)
+
+	assert.NoError(t, ValidateServiceConfig("smtp", cfg))
+	assert.Error(t, ValidateServiceConfig("smtp", map[string]string{"host": "h", "from": "not an address", "to": "a@example.com"}))
+	_, err = BuildURL("smtp", map[string]string{"host": "h", "from": "not an address", "to": "a@example.com"})
+	assert.Error(t, err)
+	_, err = BuildURL("smtp", map[string]string{"host": "h", "from": "a@example.com", "to": "x, <broken"})
+	assert.Error(t, err)
+}
+
 func TestBuildURL_FieldMapping(t *testing.T) {
 	po := mustURL(t, "pushover", sampleConfigs["pushover"])
 	pw, _ := po.User.Password()
