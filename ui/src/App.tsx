@@ -57,7 +57,7 @@ function AppContent() {
     return (saved as TabId) || 'containers';
   });
   const [updateCount, setUpdateCount] = useState(0);
-  const { lastEvent, containerUpdated } = useEventStream();
+  const { lastEvent, containerUpdated, reconnecting } = useEventStream();
 
   // Active operation banner state
   const [activeOp, setActiveOp] = useState<ActiveOperation | null>(() => {
@@ -217,6 +217,12 @@ function AppContent() {
 
   return (
     <div className="app">
+      {reconnecting && (
+        <div className="connection-banner" role="status">
+          <i className="fa-solid fa-wifi fa-fade"></i>
+          <span>Reconnecting to Docksmith…</span>
+        </div>
+      )}
       {showBanner && (
         <ActiveOperationBanner
           op={activeOp}

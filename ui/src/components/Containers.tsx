@@ -1215,7 +1215,7 @@ export function Containers() {
       <header className="containers-header">
         <div className="header-top">
           <h1>Containers</h1>
-          {(reconnecting || !!error) && (
+          {reconnecting && (
             <div className="connection-status reconnecting" title="Reconnecting...">
               <i className="fa-solid fa-wifi fa-fade"></i>
               <span>Reconnecting...</span>
