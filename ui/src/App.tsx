@@ -10,6 +10,7 @@ import { RestartDependenciesPage } from './pages/RestartDependenciesPage'
 import { OperationProgressPage } from './pages/OperationProgressPage'
 import { TabBar, type TabId } from './components/TabBar'
 import { ToastProvider, ToastContainer } from './components/Toast'
+import { Tooltip } from './components/shared'
 import { getContainerStatus } from './api/client'
 import { useEventStream, EventStreamProvider } from './context/EventStreamContext'
 import { STORAGE_KEY_TAB, ACTIVE_OPERATION_KEY } from './utils/constants'
@@ -37,9 +38,11 @@ function ActiveOperationBanner({ op, onDismiss }: { op: ActiveOperation; onDismi
         )}
         <span className="active-operation-banner-view">View <i className="fa-solid fa-arrow-right"></i></span>
       </div>
-      <button className="active-operation-banner-dismiss" onClick={(e) => { e.stopPropagation(); onDismiss(); }} aria-label="Dismiss">
-        <i className="fa-solid fa-xmark"></i>
-      </button>
+      <Tooltip label="Dismiss" placement="bottom" align="end">
+        <button className="active-operation-banner-dismiss" onClick={(e) => { e.stopPropagation(); onDismiss(); }}>
+          <i className="fa-solid fa-xmark"></i>
+        </button>
+      </Tooltip>
     </div>
   );
 }
