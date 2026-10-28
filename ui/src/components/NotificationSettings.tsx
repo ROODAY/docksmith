@@ -407,6 +407,12 @@ export function NotificationSettings() {
               onChange={(e) => updateDraft({ base_url: e.target.value })}
             />
           </div>
+          {services.length > 0 && draft.base_url.trim() === '' && (
+            <div className="setting-info setting-info-warning" role="status">
+              <i className="fa-solid fa-triangle-exclamation"></i>
+              <span>Notification links are disabled because no Base URL is set. Set one and save so each item opens the matching container page.</span>
+            </div>
+          )}
           <div className="setting-row">
             <label htmlFor="notify-min-level" className="setting-label">Minimum level</label>
             <select

@@ -227,6 +227,11 @@
   color: var(--color-danger);
 }
 
+.setting-info-warning {
+  background: var(--color-warning-dim);
+  color: var(--color-warning-bright);
+}
+
 /* Settings Footer */
 .settings-footer {
   margin-top: var(--space-16);
