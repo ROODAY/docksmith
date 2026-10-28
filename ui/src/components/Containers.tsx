@@ -26,6 +26,7 @@ import {
   SearchBar,
   StackGroup,
   StateIndicator,
+  Tooltip,
   ActionMenuButton,
   ActionMenu,
   ActionMenuItem,
@@ -828,7 +829,7 @@ export function Containers() {
           {getStatusBadge(c)}
         </div>
         <div className="item-actions">
-          <ActionMenuButton isActive={isActive} isLoading={false} onClick={() => { setActiveActionMenu(isActive ? null : c.name); setConfirmRemove(null); }} />
+          <ActionMenuButton isActive={isActive} isLoading={false} ariaLabel="More actions" onClick={() => { setActiveActionMenu(isActive ? null : c.name); setConfirmRemove(null); }} />
           <ActionMenu isActive={isActive}>
             {isRunning ? (
               <>
@@ -940,19 +941,24 @@ export function Containers() {
                   </button>
                 )}
                 {items.length > 0 && (
-                  <button
-                    className="stack-select-btn"
-                    onClick={(e) => { e.stopPropagation(); toggleStackSelection(items); }}
-                    title={items.every(c => selectedContainers.has(c.name)) ? 'Deselect all' : 'Select all'}
+                  <Tooltip
+                    label={items.every(c => selectedContainers.has(c.name)) ? 'Deselect all in stack' : 'Select all in stack'}
+                    placement="bottom"
+                    align="end"
                   >
-                    <i className={`fa-solid ${items.every(c => selectedContainers.has(c.name)) ? 'fa-square-minus' : 'fa-square-check'}`}></i>
-                  </button>
+                    <button
+                      className="stack-select-btn"
+                      onClick={(e) => { e.stopPropagation(); toggleStackSelection(items); }}
+                    >
+                      <i className={`fa-solid ${items.every(c => selectedContainers.has(c.name)) ? 'fa-square-minus' : 'fa-square-check'}`}></i>
+                    </button>
+                  </Tooltip>
                 )}
                 {explorerSettings.containers.groupBy === 'stack' && groupName !== '_standalone' && (() => {
                   const isMenuActive = activeStackMenu === groupName;
                   return (
                     <div className="stack-actions" onClick={(e) => e.stopPropagation()}>
-                      <ActionMenuButton isActive={isMenuActive} isLoading={false} onClick={(e) => { e.stopPropagation(); setActiveStackMenu(isMenuActive ? null : groupName); }} />
+                      <ActionMenuButton isActive={isMenuActive} isLoading={false} ariaLabel="Stack actions" onClick={(e) => { e.stopPropagation(); setActiveStackMenu(isMenuActive ? null : groupName); }} />
                       <ActionMenu isActive={isMenuActive}>
                         {hasActiveContainers(items) && (
                           <ActionMenuItem icon="fa-rotate" label="Restart Stack" onClick={() => handleStackAction(groupName, 'restart')} />
@@ -1226,9 +1232,11 @@ export function Containers() {
             {activeSubTab !== 'containers' && (
               <>
                 <div className="settings-menu-wrapper">
-                  <button className={`explorer-settings-btn ${showSettings ? 'active' : ''}`} onClick={() => setShowSettings(!showSettings)} title="Settings">
-                    <i className="fa-solid fa-gear"></i>
-                  </button>
+                  <Tooltip label="View options" placement="bottom" align="end">
+                    <button className={`explorer-settings-btn ${showSettings ? 'active' : ''}`} onClick={() => setShowSettings(!showSettings)}>
+                      <i className="fa-solid fa-gear"></i>
+                    </button>
+                  </Tooltip>
                   <ExplorerSettingsMenu
                     isOpen={showSettings}
                     onClose={() => setShowSettings(false)}
@@ -1255,25 +1263,33 @@ export function Containers() {
               <button className={viewSettings.filter === 'updates' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'updates' })}>Updates</button>
             </div>
             <div className="toolbar-options">
-              <button onClick={selectedContainers.size > 0 ? deselectAll : selectAll} className="icon-btn select-all-btn" title={selectedContainers.size > 0 ? 'Deselect all' : 'Select all'}>
-                <i className={`fa-solid ${selectedContainers.size > 0 ? 'fa-square-minus' : 'fa-square-check'}`}></i>
-              </button>
-              {explorerSettings.containers.groupBy === 'stack' && (
-                <button className="icon-btn" onClick={toggleAllStacks} title={collapsedStacks.size > 0 ? 'Expand all' : 'Collapse all'}>
-                  <i className={`fa-solid ${collapsedStacks.size > 0 ? 'fa-chevron-right' : 'fa-chevron-down'}`}></i>
+              <Tooltip label={selectedContainers.size > 0 ? 'Deselect all' : 'Select all'} placement="bottom" align="end">
+                <button onClick={selectedContainers.size > 0 ? deselectAll : selectAll} className="icon-btn select-all-btn">
+                  <i className={`fa-solid ${selectedContainers.size > 0 ? 'fa-square-minus' : 'fa-square-check'}`}></i>
                 </button>
+              </Tooltip>
+              {explorerSettings.containers.groupBy === 'stack' && (
+                <Tooltip label={collapsedStacks.size > 0 ? 'Expand all' : 'Collapse all'} placement="bottom" align="end">
+                  <button className="icon-btn" onClick={toggleAllStacks}>
+                    <i className={`fa-solid ${collapsedStacks.size > 0 ? 'fa-chevron-right' : 'fa-chevron-down'}`}></i>
+                  </button>
+                </Tooltip>
               )}
               <div className="settings-menu-wrapper">
-                <button className={`icon-btn dashboard-settings-btn ${showSettings ? 'active' : ''}`} onClick={() => setShowSettings(!showSettings)} title="View Options">
-                  <i className="fa-solid fa-sliders"></i>
-                </button>
+                <Tooltip label="View options" placement="bottom" align="end">
+                  <button className={`icon-btn dashboard-settings-btn ${showSettings ? 'active' : ''}`} onClick={() => setShowSettings(!showSettings)}>
+                    <i className="fa-solid fa-sliders"></i>
+                  </button>
+                </Tooltip>
                 {showSettings && (
                   <>
                     <div className="settings-menu-backdrop" onClick={(e) => { e.stopPropagation(); setShowSettings(false); }} />
                     <div className="settings-menu" role="dialog" aria-label="View options">
                       <div className="settings-menu-header">
                         <span>View Options</span>
-                        <button className="settings-close-btn" onClick={() => setShowSettings(false)}><i className="fa-solid fa-xmark"></i></button>
+                        <Tooltip label="Close" placement="bottom" align="end">
+                          <button className="settings-close-btn" onClick={() => setShowSettings(false)}><i className="fa-solid fa-xmark"></i></button>
+                        </Tooltip>
                       </div>
                       <div className="settings-menu-content">
                         <div className="settings-group">
