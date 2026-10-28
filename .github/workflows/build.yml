@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -29,7 +30,7 @@ jobs:
         id: tags
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/docksmith"
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
             SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
             echo "tags=${IMAGE}:main,${IMAGE}:sha-${SHA_SHORT}" >> $GITHUB_OUTPUT
             echo "push=true" >> $GITHUB_OUTPUT
