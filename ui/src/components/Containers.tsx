@@ -1122,7 +1122,7 @@ export function Containers() {
   }, [containers, selectedContainers]);
 
   // === Loading state ===
-  if (loading) {
+  if (loading && containers.length === 0) {
     return (
       <div className="containers-page">
         <header className="containers-header">
@@ -1205,10 +1205,17 @@ export function Containers() {
         );
       })()}
 
+      {error && containers.length > 0 && (
+        <div className="stale-data-banner" role="status">
+          <i className="fa-solid fa-triangle-exclamation"></i>
+          <span>Showing last known data — {error}</span>
+        </div>
+      )}
+
       <header className="containers-header">
         <div className="header-top">
           <h1>Containers</h1>
-          {reconnecting && (
+          {(reconnecting || !!error) && (
             <div className="connection-status reconnecting" title="Reconnecting...">
               <i className="fa-solid fa-wifi fa-fade"></i>
               <span>Reconnecting...</span>

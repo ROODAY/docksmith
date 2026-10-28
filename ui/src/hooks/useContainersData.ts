@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { getContainerStatus, getExplorerData, checkContainers, triggerCheck } from '../api/client';
+import { getSnapshot, setSnapshot } from '../api/snapshot';
 import { useEventStream } from '../context/EventStreamContext';
 import { usePeriodicRefresh } from './usePeriodicRefresh';
 import type {
@@ -110,11 +111,11 @@ function mergeContainerData(
 }
 
 export function useContainersData(): ContainersDataResult {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !getSnapshot()?.explorer);
   const [error, setError] = useState<string | null>(null);
-  const [explorerData, setExplorerData] = useState<ExplorerData | null>(null);
-  const [statusData, setStatusData] = useState<DiscoveryResult | null>(null);
-  const hasInitialData = useRef(false);
+  const [explorerData, setExplorerData] = useState<ExplorerData | null>(() => getSnapshot()?.explorer ?? null);
+  const [statusData, setStatusData] = useState<DiscoveryResult | null>(() => getSnapshot()?.status ?? null);
+  const hasInitialData = useRef(!!getSnapshot()?.explorer);
   const mountedRef = useRef(true);
   const inFlightRefresh = useRef<Promise<void> | null>(null);
   const lastRefreshStart = useRef(0);
@@ -129,37 +130,35 @@ export function useContainersData(): ContainersDataResult {
 
   const { checkProgress, containerUpdated, reconnecting, wasDisconnected, clearWasDisconnected } = useEventStream();
 
-  // Fetch both data sources in parallel
+  // Fetch both data sources in parallel. They settle independently; the explorer
+  // request alone owns the loading gate, and status is optional on top of it.
   const fetchData = useCallback(async () => {
-    try {
-      const [explorerRes, statusRes] = await Promise.all([
-        getExplorerData(),
-        getContainerStatus(),
-      ]);
-
-      if (explorerRes.success && explorerRes.data) {
-        setExplorerData(explorerRes.data);
-      }
-      if (statusRes.success && statusRes.data) {
-        setStatusData(statusRes.data);
-      }
-
-      if (!explorerRes.success) {
-        // Explorer is required for the container list — without it, data is empty
-        if (!hasInitialData.current) {
-          setError(explorerRes.error || 'Failed to fetch container data');
+    const explorerPromise = getExplorerData()
+      .then(res => {
+        if (res.success && res.data) {
+          setExplorerData(res.data);
+          setSnapshot({ explorer: res.data });
+          hasInitialData.current = true;
+          setError(null);
+        } else if (!hasInitialData.current) {
+          setError(res.error || 'Failed to fetch container data');
         }
-      } else {
-        setError(null);
-        hasInitialData.current = true;
-      }
-    } catch (err) {
-      if (!hasInitialData.current) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
-      }
-    } finally {
-      setLoading(false);
-    }
+      })
+      .catch(err => {
+        if (!hasInitialData.current) setError(err instanceof Error ? err.message : 'Unknown error');
+      })
+      .finally(() => setLoading(false));
+
+    const statusPromise = getContainerStatus()
+      .then(res => {
+        if (res.success && res.data) {
+          setStatusData(res.data);
+          setSnapshot({ status: res.data });
+        }
+      })
+      .catch(() => { /* status is optional; explorer already carries the list */ });
+
+    await Promise.allSettled([explorerPromise, statusPromise]);
   }, []);
 
   // Background refresh — trigger background check, wait for it to complete, then fetch cached data.
@@ -201,8 +200,14 @@ export function useContainersData(): ContainersDataResult {
         }
       }
       if (!mountedRef.current) return;
-      if (explorerRes.success && explorerRes.data) setExplorerData(explorerRes.data);
-      if (resolvedStatus) setStatusData(resolvedStatus);
+      if (explorerRes.success && explorerRes.data) {
+        setExplorerData(explorerRes.data);
+        setSnapshot({ explorer: explorerRes.data });
+      }
+      if (resolvedStatus) {
+        setStatusData(resolvedStatus);
+        setSnapshot({ status: resolvedStatus });
+      }
       if (explorerRes.success || statusOk) setError(null);
     } catch (err) {
       if (!mountedRef.current) return;
@@ -239,15 +244,21 @@ export function useContainersData(): ContainersDataResult {
 
   // Cache refresh — clears cache and triggers fresh registry queries
   const cacheRefresh = useCallback(async () => {
-    setLoading(true);
+    if (!explorerData) setLoading(true);
     setError(null);
     try {
       const [explorerRes, statusRes] = await Promise.all([
         getExplorerData(),
         checkContainers(),
       ]);
-      if (explorerRes.success && explorerRes.data) setExplorerData(explorerRes.data);
-      if (statusRes.success && statusRes.data) setStatusData(statusRes.data);
+      if (explorerRes.success && explorerRes.data) {
+        setExplorerData(explorerRes.data);
+        setSnapshot({ explorer: explorerRes.data });
+      }
+      if (statusRes.success && statusRes.data) {
+        setStatusData(statusRes.data);
+        setSnapshot({ status: statusRes.data });
+      }
       if (!explorerRes.success && !statusRes.success) {
         setError(explorerRes.error || statusRes.error || 'Failed to refresh');
       }
@@ -256,7 +267,7 @@ export function useContainersData(): ContainersDataResult {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [explorerData]);
 
   // Initial load
   useEffect(() => {
