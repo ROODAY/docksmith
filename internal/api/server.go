@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chis/docksmith/internal/config"
@@ -41,6 +42,11 @@ type Server struct {
 	notifier              *notify.Notifier    // nil when notifyStore is nil
 	notifyCtx             context.Context
 	notifyCancel          context.CancelFunc
+
+	// shutdownCh is closed on shutdown so long-lived SSE handlers return and
+	// httpServer.Shutdown does not wait out its whole deadline.
+	shutdownCh   chan struct{}
+	shutdownOnce sync.Once
 }
 
 // Config holds configuration for the API server
@@ -166,6 +172,7 @@ func NewServer(cfg Config) *Server {
 		notifier:              notifier,
 		notifyCtx:             notifyCtx,
 		notifyCancel:          notifyCancel,
+		shutdownCh:            make(chan struct{}),
 	}
 
 	// Setup HTTP server with middleware chain
@@ -341,6 +348,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// Stop rate limiter cleanup goroutines
 	if s.rateLimiter != nil {
 		s.rateLimiter.Stop()
+	}
+
+	// Close long-lived SSE streams so Shutdown doesn't block until the deadline.
+	if s.shutdownCh != nil {
+		s.shutdownOnce.Do(func() { close(s.shutdownCh) })
 	}
 
 	return s.httpServer.Shutdown(ctx)
