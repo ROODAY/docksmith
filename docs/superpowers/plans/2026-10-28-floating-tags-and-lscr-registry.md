@@ -506,7 +506,8 @@ git commit -m "fix(update): never recommend a tag older than the running version
 ### Task 5: UI — floating badge and inert-pin warning
 
 **Files:**
-- Modify: `ui/src/types/api.ts:30` (add `using_floating_tag?: boolean`)
+- Modify: `ui/src/types/api.ts` — add `using_floating_tag?: boolean` to both `ContainerInfo` (line ~30) and `UnifiedContainerItem` (line ~454)
+- Modify: `ui/src/hooks/useContainersData.ts:66-94` — copy the field in `mergeOne`
 - Modify: `ui/src/components/Containers.tsx:760-786` (`getStatusBadge`) and `:843` (pin icon)
 - Modify: `ui/src/pages/ContainerPage.tsx:505-520` (`getStatusBadge`) and the "Pin to Version" control block
 - Modify: `ui/src/styles/containers.css`, `ui/src/styles/container-page.css`
@@ -515,12 +516,18 @@ git commit -m "fix(update): never recommend a tag older than the running version
 - Consumes: `using_floating_tag` from Task 3; `isUpdatable` from `ui/src/utils/status.ts`.
 - Produces: `FLOATING` badge for floating tags with no migration target; a warning next to version pins on floating tags.
 
-- [ ] **Step 1: Add the payload field**
+- [ ] **Step 1: Add the payload field to both UI types and the merge**
 
-In `ContainerInfo` in `ui/src/types/api.ts`, after `using_latest_tag`:
+In `ContainerInfo` and `UnifiedContainerItem` in `ui/src/types/api.ts`, after `using_latest_tag`:
 
 ```ts
 using_floating_tag?: boolean;
+```
+
+In `mergeOne` in `ui/src/hooks/useContainersData.ts`, next to `using_latest_tag`:
+
+```ts
+using_floating_tag: status?.using_floating_tag,
 ```
 
 - [ ] **Step 2: Add the list badge**
@@ -631,7 +638,7 @@ Expected: both succeed.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add ui/src/types/api.ts ui/src/components/Containers.tsx ui/src/pages/ContainerPage.tsx ui/src/styles/containers.css ui/src/styles/container-page.css
+git add ui/src/types/api.ts ui/src/hooks/useContainersData.ts ui/src/components/Containers.tsx ui/src/pages/ContainerPage.tsx ui/src/styles/containers.css ui/src/styles/container-page.css
 git commit -m "feat(ui): flag floating tags and inert version pins"
 ```
 
