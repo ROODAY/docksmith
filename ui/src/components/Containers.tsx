@@ -113,12 +113,17 @@ export function Containers() {
     loading,
     error,
     checking,
+    refreshing,
     lastBackgroundRun,
     checkProgress,
     reconnecting,
     refresh,
     cacheRefresh,
   } = useContainersData({ includeVolumeSizes: activeSubTab === 'volumes' });
+
+  // A check is in flight either because the server reports one or because this
+  // hook started one and is still polling for it.
+  const refreshBusy = checking || refreshing;
 
   // Re-render every 30 s so the relative "Checked …" label does not go stale.
   const [, setTick] = useState(0);
@@ -1357,12 +1362,13 @@ export function Containers() {
             <button
               className="refresh-status"
               onClick={refresh}
-              disabled={checking}
-              title="Check for updates now"
-              aria-label="Check for updates now"
+              disabled={refreshBusy}
+              aria-busy={refreshBusy}
+              title={refreshBusy ? 'Checking for updates' : 'Check for updates now'}
+              aria-label={refreshBusy ? 'Checking for updates' : 'Check for updates now'}
             >
-              <i className={`fa-solid fa-rotate ${checking ? 'fa-spin' : ''}`} />
-              <span>{checking ? 'Checking…' : `Checked ${lastBackgroundRun ? formatTimeAgo(lastBackgroundRun) : 'never'}`}</span>
+              <i className={`fa-solid fa-rotate ${refreshBusy ? 'fa-spin' : ''}`} />
+              <span>{refreshBusy ? 'Checking…' : `Checked ${lastBackgroundRun ? formatTimeAgo(lastBackgroundRun) : 'never'}`}</span>
             </button>
           </div>
         </div>

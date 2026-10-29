@@ -29,6 +29,7 @@ interface ContainersDataResult {
   loading: boolean;
   error: string | null;
   checking: boolean;
+  refreshing: boolean;
   lastBackgroundRun?: string;
   checkProgress: { checked: number; total: number; percent: number; message: string } | null;
   reconnecting: boolean;
@@ -120,6 +121,9 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
   const [error, setError] = useState<string | null>(null);
   const [explorerData, setExplorerData] = useState<ExplorerData | null>(() => getSnapshot()?.explorer ?? null);
   const [statusData, setStatusData] = useState<DiscoveryResult | null>(() => getSnapshot()?.status ?? null);
+  // True while a refresh run started an actual check and is still polling for it.
+  // Only the run that received triggered=true sets it; deduped runs never do.
+  const [refreshing, setRefreshing] = useState(false);
   const hasInitialData = useRef(!!getSnapshot()?.explorer);
   const mountedRef = useRef(true);
   const inFlightRefresh = useRef<Promise<void> | null>(null);
@@ -179,6 +183,9 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
         console.warn('Background check trigger failed:', triggerRes.error);
       }
       const triggered = triggerRes.success && triggerRes.data?.triggered === true;
+      // Surface an in-flight check as soon as this run starts one, so the header can
+      // show "Checking…" without waiting for the next /api/status refetch.
+      if (triggered && mountedRef.current) setRefreshing(true);
 
       const pollDeadline = triggerAt + 15000;
       let finalStatus: DiscoveryResult | null = null;
@@ -220,6 +227,10 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
     } catch (err) {
       if (!mountedRef.current) return;
       console.error('Background refresh failed:', err);
+    } finally {
+      // Covers the poll loop and the post-poll refetch, including every early return.
+      // Skipped after unmount, like every other state write in this hook.
+      if (mountedRef.current) setRefreshing(false);
     }
   }, [includeVolumeSizes]);
 
@@ -358,6 +369,7 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
     loading,
     error,
     checking: statusData?.checking ?? false,
+    refreshing,
     lastBackgroundRun: statusData?.last_background_run,
     checkProgress,
     reconnecting,
