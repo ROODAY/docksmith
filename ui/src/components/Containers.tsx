@@ -309,18 +309,30 @@ export function Containers() {
   }, [matchesCommonFilters, viewSettings.filter, viewSettings.showMismatch]);
 
   // === Filter counts (must match the rows each filter shows) ===
+  // The updates button counts real version updates only, matching the sidebar;
+  // the updates filter may additionally show mismatches when showMismatch is on.
   const updatesCount = useMemo(() => containers.filter(c =>
-    matchesCommonFilters(c, 'updates') &&
+    matchesCommonFilters(c, 'all') &&
     c.has_update_data &&
-    (isVersionUpdate(c.update_status || '') ||
-      (viewSettings.showMismatch && isMismatch(c.update_status || '')))
-  ).length, [containers, matchesCommonFilters, viewSettings.showMismatch]);
+    isVersionUpdate(c.update_status || '')
+  ).length, [containers, matchesCommonFilters]);
 
   const pinnableCount = useMemo(() => containers.filter(c =>
     matchesCommonFilters(c, 'pinnable') &&
     c.has_update_data &&
     isPinnable(c.update_status || '')
   ).length, [containers, matchesCommonFilters]);
+
+  // Floating rows with no resolvable target are hidden from the updates and
+  // pinnable filters by design; count them so the empty states can explain why.
+  const pageFloatingNoTargetCount = useMemo(() => containers.filter(c =>
+    c.using_floating_tag &&
+    !isUpdatable(c.update_status || '') &&
+    c.update_status !== 'IGNORED' &&
+    c.update_status !== 'LOCAL_IMAGE' &&
+    c.update_status !== 'COMPOSE_MISMATCH' &&
+    c.labels?.['docksmith.allow-latest'] !== 'true'
+  ).length, [containers]);
 
   // === Container sorting ===
   const sortContainers = useCallback((items: UnifiedContainerItem[]) => {
@@ -795,7 +807,7 @@ export function Containers() {
       !isUpdatable(c.update_status || '')
     ) {
       return (
-        <span className="status-badge floating" title={`Floating tag ${c.current_tag || ''} — no exact version tag could be resolved`}>
+        <span className="status-badge floating" title={`Floating tag ${c.current_tag || ''} — no exact version tag could be resolved. Mount a read:packages PAT for a target.`}>
           FLOATING
         </span>
       );
@@ -951,11 +963,17 @@ export function Containers() {
             <i className="fa-solid fa-circle-check"></i>
             <h2>No version updates available</h2>
             <p>
-              There are no updates available
+              {pageFloatingNoTargetCount === 0 && 'There are no updates available'}
               {pinnableCount > 0 && (
                 <>
-                  <br />
-                  <span className="empty-hint">{pinnableCount} container(s) are on floating tags — see Pinnable.</span>
+                  {pageFloatingNoTargetCount === 0 && <br />}
+                  <span className="empty-hint">{pinnableCount} container(s) have a recommended pin tag — see Pinnable.</span>
+                </>
+              )}
+              {pageFloatingNoTargetCount > 0 && (
+                <>
+                  {pinnableCount > 0 && <br />}
+                  <span className="empty-hint">{pageFloatingNoTargetCount} floating container(s) have no target — see All, and mount a read:packages PAT for targets.</span>
                 </>
               )}
             </p>
@@ -963,7 +981,17 @@ export function Containers() {
         );
       }
       if (viewSettings.filter === 'pinnable') {
-        return <div className="empty-state"><i className="fa-solid fa-thumbtack"></i><h2>No floating tags</h2><p>Every container is pinned to a version tag.</p></div>;
+        return (
+          <div className="empty-state">
+            <i className="fa-solid fa-thumbtack"></i>
+            <h2>No containers with a pin target</h2>
+            <p>
+              {pageFloatingNoTargetCount > 0
+                ? `${pageFloatingNoTargetCount} floating container(s) have no target — mount a read:packages PAT to resolve one.`
+                : 'Every container is either pinned to a version tag or already has a target.'}
+            </p>
+          </div>
+        );
       }
       return <div className="empty-state"><i className="fa-solid fa-box-open"></i><h2>No containers found</h2><p>No containers match the current filter</p></div>;
     }
@@ -1361,7 +1389,7 @@ export function Containers() {
           <div className="filter-toolbar">
             <div className="segmented-control">
               <button className={viewSettings.filter === 'all' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'all' })}>All</button>
-              <button className={viewSettings.filter === 'updates' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'updates' })}>Updates ({updatesCount})</button>
+              <button className={viewSettings.filter === 'updates' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'updates' })} title={`${updatesCount} version update(s); mismatched containers are shown when enabled`}>Updates ({updatesCount})</button>
               <button className={viewSettings.filter === 'pinnable' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'pinnable' })}>Pinnable ({pinnableCount})</button>
             </div>
             <div className="toolbar-options">
@@ -1521,7 +1549,10 @@ export function Containers() {
                   {selectedAnalysis.rebuildCount > 0 && <span className="update-type-badge rebuild">{selectedAnalysis.rebuildCount} Rebuild</span>}
                   {selectedAnalysis.pinnableCount > 0 && <span className="update-type-badge pinnable">{selectedAnalysis.pinnableCount} Pinnable</span>}
                   {selectedAnalysis.floatingNoTargetCount > 0 && (
-                    <span className="update-type-badge floating">
+                    <span
+                      className="update-type-badge floating"
+                      title="Floating tag — no exact version tag could be resolved. Mount a read:packages PAT for a target."
+                    >
                       {selectedAnalysis.floatingNoTargetCount} Floating · no target
                     </span>
                   )}

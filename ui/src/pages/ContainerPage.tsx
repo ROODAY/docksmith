@@ -514,7 +514,7 @@ export function ContainerPage() {
       docksmithData.status !== 'COMPOSE_MISMATCH' &&
       docksmithData.status !== 'LOCAL_IMAGE'
     ) {
-      return <span className="docksmith-badge floating" title="Floating tag — no exact version tag could be resolved">Floating Tag</span>;
+      return <span className="docksmith-badge floating" title="Floating tag — no exact version tag could be resolved. Mount a read:packages PAT for a target.">Floating Tag</span>;
     }
     switch (docksmithData.status) {
       case 'UPDATE_AVAILABLE':

@@ -174,9 +174,9 @@ Their build number suffixes (e.g., `1.0.0-ls123`) are normalized for comparison.
 services:
   radarr:
     image: lscr.io/linuxserver/radarr:latest
-    labels:
-      - docksmith.allow-latest=true
 ```
+
+`docksmith.allow-latest=true` suppresses this migration prompt; leave it off if you want docksmith to propose a pin target.
 
 Resolving a version tag from a floating tag requires authentication: use a GitHub classic personal access token (PAT) with the `read:packages` scope. Mount it at `/root/.docker/config.json`; an `auths` entry for either `ghcr.io` or `lscr.io` is accepted:
 
