@@ -19,7 +19,7 @@ import type {
   VolumeInfo,
 } from '../types/api';
 import { ChangeType } from '../types/api';
-import { isUpdatable, isMismatch } from '../utils/status';
+import { isUpdatable, isVersionUpdate, isPinnable, isMismatch } from '../utils/status';
 import { parseImageRef } from '../utils/registry';
 import { useToast } from './Toast';
 import {
@@ -50,7 +50,7 @@ const STORAGE_KEY_COLLAPSED = 'containers_collapsed_stacks';
 const STORAGE_KEY_DASHBOARD = 'dashboard_settings'; // for migration
 
 type SubTab = 'containers' | 'images' | 'networks' | 'volumes';
-type ContainerFilter = 'all' | 'updates';
+type ContainerFilter = 'all' | 'updates' | 'pinnable';
 
 interface ContainerViewSettings {
   filter: ContainerFilter;
@@ -273,7 +273,9 @@ export function Containers() {
   }, [closeAllMenus]);
 
   // === Container filtering ===
-  const filterContainer = useCallback((c: UnifiedContainerItem) => {
+  // Visibility rules shared by every filter; the filter-specific predicate is
+  // applied separately so the toolbar counts match the rows each filter shows.
+  const matchesCommonFilters = useCallback((c: UnifiedContainerItem, filter: ContainerFilter) => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       if (!c.name.toLowerCase().includes(q) &&
@@ -284,20 +286,41 @@ export function Containers() {
     }
     if (explorerSettings.containers.showRunningOnly && c.state !== 'running') return false;
     // Hide standalone containers (not in a stack) unless toggled on or in "all" view
-    if (!c.stack && viewSettings.filter !== 'all' && !viewSettings.showStandalone) return false;
+    if (!c.stack && filter !== 'all' && !viewSettings.showStandalone) return false;
     if (c.has_update_data) {
       if (c.update_status === 'LOCAL_IMAGE' && !viewSettings.showLocalImages) return false;
       if (c.update_status === 'IGNORED' && !viewSettings.showIgnored) return false;
     }
+    return true;
+  }, [searchQuery, viewSettings.showStandalone, viewSettings.showLocalImages, viewSettings.showIgnored, explorerSettings.containers.showRunningOnly]);
+
+  const filterContainer = useCallback((c: UnifiedContainerItem) => {
+    if (!matchesCommonFilters(c, viewSettings.filter)) return false;
     if (viewSettings.filter === 'updates') {
       if (!c.has_update_data) return false;
-      // Build a pseudo-ContainerInfo to use existing status helpers
-      if (isUpdatable(c.update_status || '')) return true;
+      if (isVersionUpdate(c.update_status || '')) return true;
       if (viewSettings.showMismatch && isMismatch(c.update_status || '')) return true;
       return false;
     }
+    if (viewSettings.filter === 'pinnable') {
+      return c.has_update_data && isPinnable(c.update_status || '');
+    }
     return true;
-  }, [searchQuery, viewSettings, explorerSettings.containers.showRunningOnly]);
+  }, [matchesCommonFilters, viewSettings.filter, viewSettings.showMismatch]);
+
+  // === Filter counts (must match the rows each filter shows) ===
+  const updatesCount = useMemo(() => containers.filter(c =>
+    matchesCommonFilters(c, 'updates') &&
+    c.has_update_data &&
+    (isVersionUpdate(c.update_status || '') ||
+      (viewSettings.showMismatch && isMismatch(c.update_status || '')))
+  ).length, [containers, matchesCommonFilters, viewSettings.showMismatch]);
+
+  const pinnableCount = useMemo(() => containers.filter(c =>
+    matchesCommonFilters(c, 'pinnable') &&
+    c.has_update_data &&
+    isPinnable(c.update_status || '')
+  ).length, [containers, matchesCommonFilters]);
 
   // === Container sorting ===
   const sortContainers = useCallback((items: UnifiedContainerItem[]) => {
@@ -923,7 +946,24 @@ export function Containers() {
         return <div className="empty-state"><i className="fa-solid fa-magnifying-glass"></i><h2>No search results</h2><p>No containers match "{searchQuery}"</p></div>;
       }
       if (viewSettings.filter === 'updates') {
-        return <div className="empty-state"><i className="fa-solid fa-circle-check"></i><h2>All containers are up to date</h2><p>There are no updates available</p></div>;
+        return (
+          <div className="empty-state">
+            <i className="fa-solid fa-circle-check"></i>
+            <h2>No version updates available</h2>
+            <p>
+              There are no updates available
+              {pinnableCount > 0 && (
+                <>
+                  <br />
+                  <span className="empty-hint">{pinnableCount} container(s) are on floating tags — see Pinnable.</span>
+                </>
+              )}
+            </p>
+          </div>
+        );
+      }
+      if (viewSettings.filter === 'pinnable') {
+        return <div className="empty-state"><i className="fa-solid fa-thumbtack"></i><h2>No floating tags</h2><p>Every container is pinned to a version tag.</p></div>;
       }
       return <div className="empty-state"><i className="fa-solid fa-box-open"></i><h2>No containers found</h2><p>No containers match the current filter</p></div>;
     }
@@ -953,7 +993,7 @@ export function Containers() {
                       const stackId = `stack-${groupName}`;
                       if (searchQuery) setSearchQuery('');
                       const updates: Partial<ContainerViewSettings> = {};
-                      if (viewSettings.filter === 'updates') updates.filter = 'all';
+                      if (viewSettings.filter !== 'all') updates.filter = 'all';
                       if (!viewSettings.showIgnored && containerStacks[groupName].some(c => c.update_status === 'IGNORED')) updates.showIgnored = true;
                       if (!viewSettings.showLocalImages && containerStacks[groupName].some(c => c.update_status === 'LOCAL_IMAGE')) updates.showLocalImages = true;
                       if (Object.keys(updates).length > 0) updateViewSettings(updates);
@@ -1133,23 +1173,29 @@ export function Containers() {
   // === Selected containers analysis ===
   const selectedAnalysis = useMemo(() => {
     const selected = containers.filter(c => selectedContainers.has(c.name));
-    const updatable = selected.filter(c => c.has_update_data && isUpdatable(c.update_status || ''));
+    const versionUpdates = selected.filter(c => c.has_update_data && isVersionUpdate(c.update_status || ''));
+    const pinnable = selected.filter(c => c.has_update_data && isPinnable(c.update_status || ''));
     const mismatches = selected.filter(c => c.has_update_data && isMismatch(c.update_status || ''));
 
-    const patchCount = updatable.filter(c => c.change_type === ChangeType.PatchChange || c.change_type === ChangeType.BuildChange).length;
-    const minorCount = updatable.filter(c => c.change_type === ChangeType.MinorChange).length;
-    const majorCount = updatable.filter(c => c.change_type === ChangeType.MajorChange).length;
-    const blockedCount = updatable.filter(c => c.update_status === 'UPDATE_AVAILABLE_BLOCKED').length;
-    const pinnable = updatable.filter(c => c.update_status === 'UP_TO_DATE_PINNABLE');
-    const rebuildCount = updatable.filter(c =>
+    const patchCount = versionUpdates.filter(c => c.change_type === ChangeType.PatchChange || c.change_type === ChangeType.BuildChange).length;
+    const minorCount = versionUpdates.filter(c => c.change_type === ChangeType.MinorChange).length;
+    const majorCount = versionUpdates.filter(c => c.change_type === ChangeType.MajorChange).length;
+    const blockedCount = versionUpdates.filter(c => c.update_status === 'UPDATE_AVAILABLE_BLOCKED').length;
+    const rebuildCount = versionUpdates.filter(c =>
       (c.change_type === ChangeType.NoChange || c.change_type === ChangeType.UnknownChange) &&
-      c.update_status !== 'UPDATE_AVAILABLE_BLOCKED' &&
-      c.update_status !== 'UP_TO_DATE_PINNABLE'
+      c.update_status !== 'UPDATE_AVAILABLE_BLOCKED'
+    ).length;
+
+    const floatingNoTargetCount = selected.filter(c =>
+      c.using_floating_tag &&
+      !isUpdatable(c.update_status || '') &&
+      c.update_status !== 'IGNORED' &&
+      c.labels?.['docksmith.allow-latest'] !== 'true'
     ).length;
 
     return {
       count: selected.length,
-      hasUpdates: updatable.length > 0,
+      hasUpdates: versionUpdates.length > 0 || pinnable.length > 0,
       hasMismatches: mismatches.length > 0,
       hasRunning: selected.some(c => c.state === 'running'),
       hasStopped: selected.some(c => c.state !== 'running'),
@@ -1162,9 +1208,10 @@ export function Containers() {
       blockedCount,
       rebuildCount,
       pinnableCount: pinnable.length,
-      allActionablePinnable: updatable.length > 0 && pinnable.length === updatable.length && mismatches.length === 0,
+      allActionablePinnable: versionUpdates.length + pinnable.length > 0 && pinnable.length === versionUpdates.length + pinnable.length && mismatches.length === 0,
       mismatchCount: mismatches.length,
-      updateTotal: updatable.length,
+      updateTotal: versionUpdates.length + pinnable.length,
+      floatingNoTargetCount,
     };
   }, [containers, selectedContainers]);
 
@@ -1314,7 +1361,8 @@ export function Containers() {
           <div className="filter-toolbar">
             <div className="segmented-control">
               <button className={viewSettings.filter === 'all' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'all' })}>All</button>
-              <button className={viewSettings.filter === 'updates' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'updates' })}>Updates</button>
+              <button className={viewSettings.filter === 'updates' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'updates' })}>Updates ({updatesCount})</button>
+              <button className={viewSettings.filter === 'pinnable' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'pinnable' })}>Pinnable ({pinnableCount})</button>
             </div>
             <div className="toolbar-options">
               <Tooltip label={selectedContainers.size > 0 ? 'Deselect all' : 'Select all'} placement="bottom" align="end">
@@ -1465,13 +1513,18 @@ export function Containers() {
           <div className="selection-actions">
             <div className="selection-summary">
               <span className="selection-count">{selectedAnalysis.count} selected</span>
-              {(selectedAnalysis.hasUpdates || selectedAnalysis.hasMismatches) && (
+              {(selectedAnalysis.hasUpdates || selectedAnalysis.hasMismatches || selectedAnalysis.floatingNoTargetCount > 0) && (
                 <div className="update-type-badges">
                   {selectedAnalysis.patchCount > 0 && <span className="update-type-badge patch">{selectedAnalysis.patchCount} Patch</span>}
                   {selectedAnalysis.minorCount > 0 && <span className="update-type-badge minor">{selectedAnalysis.minorCount} Minor</span>}
                   {selectedAnalysis.majorCount > 0 && <span className="update-type-badge major">{selectedAnalysis.majorCount} Major</span>}
                   {selectedAnalysis.rebuildCount > 0 && <span className="update-type-badge rebuild">{selectedAnalysis.rebuildCount} Rebuild</span>}
                   {selectedAnalysis.pinnableCount > 0 && <span className="update-type-badge pinnable">{selectedAnalysis.pinnableCount} Pinnable</span>}
+                  {selectedAnalysis.floatingNoTargetCount > 0 && (
+                    <span className="update-type-badge floating">
+                      {selectedAnalysis.floatingNoTargetCount} Floating · no target
+                    </span>
+                  )}
                   {selectedAnalysis.blockedCount > 0 && <span className="update-type-badge blocked">{selectedAnalysis.blockedCount} Blocked</span>}
                   {selectedAnalysis.mismatchCount > 0 && <span className="update-type-badge mismatch">{selectedAnalysis.mismatchCount} Mismatch</span>}
                 </div>

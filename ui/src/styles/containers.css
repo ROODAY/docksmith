@@ -352,8 +352,15 @@
 .update-type-badge.major { background: var(--color-badge-major-dim); color: var(--color-badge-major); }
 .update-type-badge.rebuild { background: var(--color-slate-dim); color: var(--color-slate); }
 .update-type-badge.pinnable { background: var(--color-badge-pinnable-dim); color: var(--color-badge-pinnable); }
+.update-type-badge.floating { background: var(--color-warning-dim); color: var(--color-warning); }
 .update-type-badge.blocked { background: var(--color-badge-blocked-dim); color: var(--color-badge-blocked); }
 .update-type-badge.mismatch { background: var(--color-warning-dim); color: var(--color-warning); }
+
+/* Secondary hint line under an empty state message */
+.containers-page .empty-state .empty-hint {
+  font-size: var(--text-sm);
+  opacity: 0.75;
+}
 
 /* Force variant of update button */
 .update-btn.force {
