@@ -21,6 +21,7 @@ import type {
 import { ChangeType } from '../types/api';
 import { isUpdatable, isVersionUpdate, isPinnable, isMismatch } from '../utils/status';
 import { parseImageRef } from '../utils/registry';
+import { formatTimeAgo } from '../utils/time';
 import { useToast } from './Toast';
 import {
   SearchBar,
@@ -111,11 +112,20 @@ export function Containers() {
     volumes,
     loading,
     error,
+    checking,
+    lastBackgroundRun,
     checkProgress,
     reconnecting,
     refresh,
     cacheRefresh,
   } = useContainersData({ includeVolumeSizes: activeSubTab === 'volumes' });
+
+  // Re-render every 30 s so the relative "Checked …" label does not go stale.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick(t => t + 1), 30000);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Container view settings (filter, show ignored, etc.)
   const [viewSettings, setViewSettings] = useState<ContainerViewSettings>(loadContainerViewSettings);
@@ -1337,12 +1347,24 @@ export function Containers() {
       <header className="containers-header">
         <div className="header-top">
           <h1>Containers</h1>
-          {reconnecting && (
-            <div className="connection-status reconnecting" title="Reconnecting...">
-              <i className="fa-solid fa-wifi fa-fade"></i>
-              <span>Reconnecting...</span>
-            </div>
-          )}
+          <div className="header-status">
+            {reconnecting && (
+              <div className="connection-status reconnecting" title="Reconnecting...">
+                <i className="fa-solid fa-wifi fa-fade"></i>
+                <span>Reconnecting...</span>
+              </div>
+            )}
+            <button
+              className="refresh-status"
+              onClick={refresh}
+              disabled={checking}
+              title="Check for updates now"
+              aria-label="Check for updates now"
+            >
+              <i className={`fa-solid fa-rotate ${checking ? 'fa-spin' : ''}`} />
+              <span>{checking ? 'Checking…' : `Checked ${lastBackgroundRun ? formatTimeAgo(lastBackgroundRun) : 'never'}`}</span>
+            </button>
+          </div>
         </div>
         <SearchBar value={searchQuery} onChange={setSearchQuery} placeholder={`Search ${activeSubTab}...`} />
 

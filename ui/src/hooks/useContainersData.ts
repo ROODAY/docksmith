@@ -29,6 +29,7 @@ interface ContainersDataResult {
   loading: boolean;
   error: string | null;
   checking: boolean;
+  lastBackgroundRun?: string;
   checkProgress: { checked: number; total: number; percent: number; message: string } | null;
   reconnecting: boolean;
   refresh: () => Promise<void>;
@@ -166,21 +167,24 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
   }, [includeVolumeSizes]);
 
   // Background refresh — trigger background check, wait for it to complete, then fetch cached data.
-  // Polls /api/status until checking=false and lastBackgroundRun advances past the trigger time,
-  // so the UI reflects the post-trigger cache rather than the pre-trigger one.
-  const runRefresh = useCallback(async () => {
+  // Polls /api/status only when the server actually started a check (triggered), until
+  // checking=false and lastBackgroundRun advances past the trigger time, so the UI reflects
+  // the post-trigger cache rather than the pre-trigger one. A deduped trigger skips the
+  // poll loop entirely and costs just the single explorer/status refetch.
+  const runRefresh = useCallback(async (force: boolean) => {
     try {
       const triggerAt = Date.now();
-      const triggerRes = await triggerCheck();
+      const triggerRes = await triggerCheck(force);
       if (!triggerRes.success) {
         console.warn('Background check trigger failed:', triggerRes.error);
       }
+      const triggered = triggerRes.success && triggerRes.data?.triggered === true;
 
       const pollDeadline = triggerAt + 15000;
       let finalStatus: DiscoveryResult | null = null;
-      // No check was started if the trigger failed, so skip the poll loop.
-      while (triggerRes.success && mountedRef.current && Date.now() < pollDeadline) {
-        await new Promise(resolve => setTimeout(resolve, 300));
+      // No check was started if the trigger failed or was deduped, so skip the poll loop.
+      while (triggered && mountedRef.current && Date.now() < pollDeadline) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
         if (!mountedRef.current) return;
         const statusRes = await getContainerStatus(5000);
         if (!statusRes.success || !statusRes.data) continue;
@@ -219,10 +223,10 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
     }
   }, [includeVolumeSizes]);
 
-  const startRefresh = useCallback(() => {
+  const startRefresh = useCallback((force: boolean) => {
     if (!mountedRef.current) return Promise.resolve();
     lastRefreshStart.current = Date.now();
-    const run = runRefresh().finally(() => { inFlightRefresh.current = null; });
+    const run = runRefresh(force).finally(() => { inFlightRefresh.current = null; });
     inFlightRefresh.current = run;
     return run;
   }, [runRefresh]);
@@ -237,11 +241,11 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
       if (!force) return current;
       return current.then(() => {
         if (inFlightRefresh.current) return inFlightRefresh.current;
-        return startRefresh();
+        return startRefresh(true);
       });
     }
     if (!force && Date.now() - lastRefreshStart.current < 1000) return Promise.resolve();
-    return startRefresh();
+    return startRefresh(force);
   }, [startRefresh]);
 
   const refresh = useCallback(() => backgroundRefresh(true), [backgroundRefresh]);
@@ -354,6 +358,7 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
     loading,
     error,
     checking: statusData?.checking ?? false,
+    lastBackgroundRun: statusData?.last_background_run,
     checkProgress,
     reconnecting,
     refresh,
