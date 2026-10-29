@@ -58,7 +58,8 @@ export interface Stack {
 // Discovery Result (matches update.DiscoveryResult)
 export interface DiscoveryResult {
   containers: ContainerInfo[];
-  stacks: Record<string, Stack>;
+  // Omitted by /api/status (which only reports cache state); present on /api/check.
+  stacks?: Record<string, Stack>;
   standalone_containers: ContainerInfo[];
   update_order: string[];
   total_checked: number;
@@ -74,6 +75,13 @@ export interface DiscoveryResult {
   next_check?: string; // ISO timestamp
   check_interval?: string; // Duration string like "5m0s"
   cache_ttl?: string; // Duration string like "1h0m0s"
+}
+
+// Trigger check response (matches POST /api/trigger-check)
+export interface TriggerCheckResponse {
+  triggered: boolean;
+  checking: boolean;
+  last_background_run?: string;
 }
 
 // Batch Container Detail (matches storage.BatchContainerDetail)

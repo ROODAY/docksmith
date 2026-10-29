@@ -1,5 +1,6 @@
 import type {
   CheckResponse,
+  DiscoveryResult,
   OperationsResponse,
   DockerConfigResponse,
   APIResponse,
@@ -15,6 +16,7 @@ import type {
   NotifyCronValidation,
   NotifyService,
   NotifyServiceInput,
+  TriggerCheckResponse,
 } from '../types/api';
 
 const API_BASE = '/api';
@@ -102,13 +104,29 @@ export async function checkContainers(): Promise<CheckResponse> {
 }
 
 // Get cached container status (from background checker)
-export async function getContainerStatus(timeoutMs?: number): Promise<CheckResponse> {
-  return fetchAPI('/status', { timeoutMs });
+//
+// Concurrent callers (dashboard, container page, hooks) share a single in-flight
+// request per timeout tier instead of issuing duplicate /status calls.
+const statusInFlight = new Map<string, Promise<CheckResponse>>();
+
+export function getContainerStatus(timeoutMs?: number): Promise<CheckResponse> {
+  const key = timeoutMs === undefined ? 'default' : String(timeoutMs);
+  const existing = statusInFlight.get(key);
+  if (existing) return existing;
+
+  const request: Promise<CheckResponse> = fetchAPI<DiscoveryResult>('/status', { timeoutMs }).finally(() => {
+    // Only clear the entry if it is still the promise we registered; a later
+    // call may have already replaced it.
+    if (statusInFlight.get(key) === request) statusInFlight.delete(key);
+  });
+  statusInFlight.set(key, request);
+  return request;
 }
 
-// Trigger a background update check (returns immediately; poll /status for progress)
-export async function triggerCheck(): Promise<APIResponse<unknown>> {
-  return fetchAPI('/trigger-check', { method: 'POST' });
+// Trigger a background update check (returns immediately; poll /status for progress).
+// force bypasses the backend's one-per-minute throttle.
+export async function triggerCheck(force = false): Promise<APIResponse<TriggerCheckResponse>> {
+  return fetchAPI(`/trigger-check${force ? '?force=true' : ''}`, { method: 'POST' });
 }
 
 // Recheck a single container (synchronous, bypasses cache)
