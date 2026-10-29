@@ -13,6 +13,7 @@ import { getRegistryUrl } from '../utils/registry';
 import { isUpdatable } from '../utils/status';
 import { useToast } from '../components/Toast';
 import { Tooltip } from '../components/shared';
+import { SkeletonDetailSection } from '../components/Skeleton/Skeleton';
 import { ansiToHtml } from '../utils/ansi';
 import { getCachedInspect, setCachedInspect } from '../api/snapshot';
 import { useEventStream } from '../context/EventStreamContext';
@@ -593,15 +594,18 @@ export function ContainerPage() {
           <h1>{containerName}</h1>
         </header>
         <main className="main-loading">
-          <div className="loading-spinner">
+          <div className="loading-hint-row">
             <i className="fa-solid fa-circle-notch fa-spin"></i>
+            <p className="loading-hint">
+              {reconnecting
+                ? 'Reconnecting to Docksmith — the page will fill in when it responds.'
+                : 'Waiting for a response from Docksmith…'}
+            </p>
+            <button className="retry-btn" onClick={retry}>Retry now</button>
           </div>
-          <p className="loading-hint">
-            {reconnecting
-              ? 'Reconnecting to Docksmith — the page will fill in when it responds.'
-              : 'Waiting for a response from Docksmith…'}
-          </p>
-          <button className="retry-btn" onClick={retry}>Retry now</button>
+          <SkeletonDetailSection />
+          <SkeletonDetailSection />
+          <SkeletonDetailSection />
         </main>
       </div>
     );
