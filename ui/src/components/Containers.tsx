@@ -177,6 +177,8 @@ export function Containers() {
   // Bulk action state
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [showPinConfirm, setShowPinConfirm] = useState(false);
+  const cancelPinConfirm = useCallback(() => setShowPinConfirm(false), []);
+  const pinConfirmDialogRef = useFocusTrap(showPinConfirm, cancelPinConfirm);
 
   // Close the pin confirmation whenever the selection changes underneath it
   useEffect(() => {
@@ -1427,7 +1429,7 @@ export function Containers() {
             <div className="ingress-warning"><i className="fa-solid fa-triangle-exclamation"></i><span>Selected containers serve the Docksmith UI. You will lose access until they restart.</span></div>
           )}
           {showPinConfirm && (
-            <div className="pin-confirm" role="dialog" aria-label="Pin to recommended tags">
+            <div className="pin-confirm" ref={pinConfirmDialogRef} role="dialog" aria-modal="true" aria-label="Pin to recommended tags">
               <p>Replace the floating tag with the recommended version for {selectedAnalysis.pinnableCount} container(s):</p>
               <ul>
                 {containers.filter(c => selectedContainers.has(c.name) && c.update_status === 'UP_TO_DATE_PINNABLE').map(c => (
@@ -1435,8 +1437,8 @@ export function Containers() {
                 ))}
               </ul>
               <div className="pin-confirm-actions">
-                <button onClick={() => setShowPinConfirm(false)}>Cancel</button>
-                <button onClick={() => { setShowPinConfirm(false); handleBulkUpdate(); }}>Pin</button>
+                <button onClick={cancelPinConfirm}>Cancel</button>
+                <button onClick={() => { cancelPinConfirm(); handleBulkUpdate(); }}>Pin</button>
               </div>
             </div>
           )}
