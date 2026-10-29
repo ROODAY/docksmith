@@ -540,6 +540,8 @@ if (
   c.using_floating_tag &&
   !allowLatest &&
   c.update_status !== 'IGNORED' &&
+  c.update_status !== 'LOCAL_IMAGE' &&
+  c.update_status !== 'COMPOSE_MISMATCH' &&
   !isUpdatable(c.update_status || '')
 ) {
   return (
@@ -549,6 +551,8 @@ if (
   );
 }
 ```
+
+The `LOCAL_IMAGE` and `COMPOSE_MISMATCH` exclusions matter because this early return sits before the `switch`: without them it would shadow those existing badges.
 
 `UP_TO_DATE_PINNABLE` keeps the existing PIN badge because it is updatable.
 
