@@ -789,7 +789,7 @@ Where the `updates` empty state returns "All containers are up to date", add a `
 
 - [ ] **Step 5: Split the selection analysis**
 
-In `selectedAnalysis`, compute `versionUpdates` with `isVersionUpdate` and `pinnable` with `isPinnable`; derive patch/minor/major/blocked/rebuild counts from `versionUpdates` only. Keep `hasUpdates` true when either group is non-empty. Add:
+In `selectedAnalysis`, compute `versionUpdates` with `isVersionUpdate` and `pinnable` with `isPinnable`; derive patch/minor/major/blocked/rebuild counts from `versionUpdates` only. Keep `hasUpdates` true when either group is non-empty. Keep `allActionablePinnable` correct by using the union: `versionUpdates.length + pinnable.length > 0 && pinnable.length === versionUpdates.length + pinnable.length && mismatches.length === 0`. Add:
 
 ```ts
 const floatingNoTargetCount = selected.filter(c =>
