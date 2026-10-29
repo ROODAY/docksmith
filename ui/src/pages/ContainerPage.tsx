@@ -96,7 +96,7 @@ export function ContainerPage() {
       description: 'By default, containers using the :latest tag are skipped because version comparison isn\'t possible. Enable this to allow updates for :latest tagged containers.',
     },
     versionPin: {
-      title: 'Pin to Version',
+      title: 'Version pin',
       description: 'Restrict updates to certain version increments. Patch: only bug fixes (1.0.0 → 1.0.1). Minor: features + fixes (1.0.0 → 1.1.0). Major: all updates including breaking changes.',
     },
     tagFilter: {
@@ -804,23 +804,25 @@ export function ContainerPage() {
                   <span className="version-latest">{docksmithData.recommended_tag}</span>
                 </div>
                 {!hasChanges && (
-                  <button
-                    className="update-btn pin"
-                    onClick={() => navigate('/operation', {
-                      state: {
-                        update: {
-                          containers: [{
-                            name: docksmithData.container_name,
-                            target_version: docksmithData.recommended_tag || '',
-                            stack: docksmithData.stack || '',
-                          }]
+                  <Tooltip label={`Replace the floating tag with ${docksmithData.recommended_tag}`} placement="top" align="end">
+                    <button
+                      className="update-btn pin"
+                      onClick={() => navigate('/operation', {
+                        state: {
+                          update: {
+                            containers: [{
+                              name: docksmithData.container_name,
+                              target_version: docksmithData.recommended_tag || '',
+                              stack: docksmithData.stack || '',
+                            }]
+                          }
                         }
-                      }
-                    })}
-                  >
-                    <i className="fa-solid fa-thumbtack"></i>
-                    Pin
-                  </button>
+                      })}
+                    >
+                      <i className="fa-solid fa-thumbtack"></i>
+                      Pin to tag
+                    </button>
+                  </Tooltip>
                 )}
               </section>
             )}
@@ -1214,7 +1216,7 @@ export function ContainerPage() {
                       <i className="fa-solid fa-circle-question"></i>
                     </button>
                   </Tooltip>
-                  <span className="nav-title">Pin to Version</span>
+                  <span className="nav-title">Version pin</span>
                 </div>
                 <div className="segmented-control">
                   {(['none', 'patch', 'minor', 'major'] as const).map((option) => (

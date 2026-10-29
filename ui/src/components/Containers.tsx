@@ -176,6 +176,12 @@ export function Containers() {
 
   // Bulk action state
   const [showBulkActions, setShowBulkActions] = useState(false);
+  const [showPinConfirm, setShowPinConfirm] = useState(false);
+
+  // Close the pin confirmation whenever the selection changes underneath it
+  useEffect(() => {
+    setShowPinConfirm(false);
+  }, [selectedContainers]);
 
   // Pull-to-refresh
   const [pullDistance, setPullDistance] = useState(0);
@@ -841,7 +847,7 @@ export function Containers() {
             ) : (
               <ActionMenuItem icon="fa-play" label="Start" onClick={() => handleContainerAction(c.name, 'start')} />
             )}
-            {hasUpdate && <ActionMenuItem icon="fa-arrow-up" label={c.update_status === 'UPDATE_AVAILABLE_BLOCKED' ? 'Force Update' : 'Update'} onClick={() => {
+            {hasUpdate && <ActionMenuItem icon="fa-arrow-up" label={c.update_status === 'UPDATE_AVAILABLE_BLOCKED' ? 'Force Update' : c.update_status === 'UP_TO_DATE_PINNABLE' ? 'Pin to tag' : 'Update'} onClick={() => {
               setActiveActionMenu(null);
               navigate('/operation', { state: { update: { containers: [{ name: c.name, target_version: c.recommended_tag || c.latest_version || '', stack: c.stack || '', force: c.update_status === 'UPDATE_AVAILABLE_BLOCKED', change_type: c.change_type || 0, old_resolved_version: c.current_version || '', new_resolved_version: c.latest_resolved_version || c.latest_version || '' }] } } });
             }} />}
@@ -1103,7 +1109,12 @@ export function Containers() {
     const minorCount = updatable.filter(c => c.change_type === ChangeType.MinorChange).length;
     const majorCount = updatable.filter(c => c.change_type === ChangeType.MajorChange).length;
     const blockedCount = updatable.filter(c => c.update_status === 'UPDATE_AVAILABLE_BLOCKED').length;
-    const rebuildCount = updatable.filter(c => (c.change_type === ChangeType.NoChange || c.change_type === ChangeType.UnknownChange) && c.update_status !== 'UPDATE_AVAILABLE_BLOCKED').length;
+    const pinnable = updatable.filter(c => c.update_status === 'UP_TO_DATE_PINNABLE');
+    const rebuildCount = updatable.filter(c =>
+      (c.change_type === ChangeType.NoChange || c.change_type === ChangeType.UnknownChange) &&
+      c.update_status !== 'UPDATE_AVAILABLE_BLOCKED' &&
+      c.update_status !== 'UP_TO_DATE_PINNABLE'
+    ).length;
 
     return {
       count: selected.length,
@@ -1119,6 +1130,8 @@ export function Containers() {
       majorCount,
       blockedCount,
       rebuildCount,
+      pinnableCount: pinnable.length,
+      allActionablePinnable: updatable.length > 0 && pinnable.length === updatable.length && mismatches.length === 0,
       mismatchCount: mismatches.length,
       updateTotal: updatable.length,
     };
@@ -1404,6 +1417,20 @@ export function Containers() {
           {selectedAnalysis.hasIngress && (
             <div className="ingress-warning"><i className="fa-solid fa-triangle-exclamation"></i><span>Selected containers serve the Docksmith UI. You will lose access until they restart.</span></div>
           )}
+          {showPinConfirm && (
+            <div className="pin-confirm" role="dialog" aria-label="Pin to recommended tags">
+              <p>Replace the floating tag with the recommended version for {selectedAnalysis.pinnableCount} container(s):</p>
+              <ul>
+                {containers.filter(c => selectedContainers.has(c.name) && c.update_status === 'UP_TO_DATE_PINNABLE').map(c => (
+                  <li key={c.name}><strong>{c.name}</strong>: {c.current_tag || '?'} → {c.recommended_tag || '?'}</li>
+                ))}
+              </ul>
+              <div className="pin-confirm-actions">
+                <button onClick={() => setShowPinConfirm(false)}>Cancel</button>
+                <button onClick={() => { setShowPinConfirm(false); handleBulkUpdate(); }}>Pin</button>
+              </div>
+            </div>
+          )}
           <div className="selection-actions">
             <div className="selection-summary">
               <span className="selection-count">{selectedAnalysis.count} selected</span>
@@ -1413,6 +1440,7 @@ export function Containers() {
                   {selectedAnalysis.minorCount > 0 && <span className="update-type-badge minor">{selectedAnalysis.minorCount} Minor</span>}
                   {selectedAnalysis.majorCount > 0 && <span className="update-type-badge major">{selectedAnalysis.majorCount} Major</span>}
                   {selectedAnalysis.rebuildCount > 0 && <span className="update-type-badge rebuild">{selectedAnalysis.rebuildCount} Rebuild</span>}
+                  {selectedAnalysis.pinnableCount > 0 && <span className="update-type-badge pinnable">{selectedAnalysis.pinnableCount} Pinnable</span>}
                   {selectedAnalysis.blockedCount > 0 && <span className="update-type-badge blocked">{selectedAnalysis.blockedCount} Blocked</span>}
                   {selectedAnalysis.mismatchCount > 0 && <span className="update-type-badge mismatch">{selectedAnalysis.mismatchCount} Mismatch</span>}
                 </div>
@@ -1448,11 +1476,11 @@ export function Containers() {
                       <button onClick={() => handleBulkLabel({ allow_latest: true })}><i className="fa-solid fa-tag"></i> Allow :latest</button>
                       <button onClick={() => handleBulkLabel({ allow_latest: false })}><i className="fa-solid fa-tag"></i> Disallow :latest</button>
                       <div className="bulk-actions-divider" />
-                      <span className="bulk-section-label">Pinning</span>
-                      <button onClick={() => handleBulkLabel({ version_pin_major: false, version_pin_minor: false, version_pin_patch: false })}><i className="fa-solid fa-thumbtack" style={{ opacity: 0.4 }}></i> Unpin</button>
-                      <button onClick={() => handleBulkLabel({ version_pin_major: true, version_pin_minor: false, version_pin_patch: false })}><i className="fa-solid fa-thumbtack"></i> Pin Major</button>
-                      <button onClick={() => handleBulkLabel({ version_pin_minor: true, version_pin_major: false, version_pin_patch: false })}><i className="fa-solid fa-thumbtack"></i> Pin Minor</button>
-                      <button onClick={() => handleBulkLabel({ version_pin_patch: true, version_pin_major: false, version_pin_minor: false })}><i className="fa-solid fa-thumbtack"></i> Pin Patch</button>
+                      <span className="bulk-section-label">Version pinning</span>
+                      <button onClick={() => handleBulkLabel({ version_pin_major: false, version_pin_minor: false, version_pin_patch: false })}><i className="fa-solid fa-thumbtack" style={{ opacity: 0.4 }}></i> Clear version pin</button>
+                      <button onClick={() => handleBulkLabel({ version_pin_major: true, version_pin_minor: false, version_pin_patch: false })}><i className="fa-solid fa-thumbtack"></i> Version pin · Major</button>
+                      <button onClick={() => handleBulkLabel({ version_pin_minor: true, version_pin_major: false, version_pin_patch: false })}><i className="fa-solid fa-thumbtack"></i> Version pin · Minor</button>
+                      <button onClick={() => handleBulkLabel({ version_pin_patch: true, version_pin_major: false, version_pin_minor: false })}><i className="fa-solid fa-thumbtack"></i> Version pin · Patch</button>
                       <div className="bulk-actions-divider" />
                       <span className="bulk-section-label">Clear</span>
                       <button onClick={() => handleBulkLabel({ tag_regex: '' })}><i className="fa-solid fa-filter-circle-xmark"></i> Clear Tag Filter</button>
@@ -1464,9 +1492,12 @@ export function Containers() {
 
               {/* Update button - contextual */}
               {(selectedAnalysis.hasUpdates || selectedAnalysis.hasMismatches) && (
-                <button className={`update-btn ${selectedAnalysis.hasBlocked ? 'force' : ''}`} onClick={handleBulkUpdate}>
+                <button
+                  className={`update-btn ${selectedAnalysis.hasBlocked ? 'force' : ''}`}
+                  onClick={selectedAnalysis.allActionablePinnable ? () => setShowPinConfirm(true) : handleBulkUpdate}
+                >
                   {selectedAnalysis.hasBlocked && <i className="fa-solid fa-bolt"></i>}
-                  {selectedAnalysis.hasBlocked ? 'Force Update' : 'Update'}
+                  {selectedAnalysis.allActionablePinnable ? 'Pin to recommended tags' : selectedAnalysis.hasBlocked ? 'Force Update' : 'Update'}
                 </button>
               )}
             </div>
