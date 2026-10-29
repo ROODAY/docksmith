@@ -312,7 +312,7 @@ export function Containers() {
   // The updates button counts real version updates only, matching the sidebar;
   // the updates filter may additionally show mismatches when showMismatch is on.
   const updatesCount = useMemo(() => containers.filter(c =>
-    matchesCommonFilters(c, 'all') &&
+    matchesCommonFilters(c, 'updates') &&
     c.has_update_data &&
     isVersionUpdate(c.update_status || '')
   ).length, [containers, matchesCommonFilters]);
