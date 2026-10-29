@@ -15,7 +15,7 @@
 - Go 1.25. Backend tests: `go test ./...` from the repo root. UI has no test framework; verify with `cd ui && npm run build` (tsc + vite) and `npm run lint`.
 - GHCR credentials: a classic GitHub PAT with `read:packages`, supplied as `GITHUB_TOKEN` (wins) or an inline `auths."ghcr.io"` / `auths."lscr.io"` entry in `/root/.docker/config.json`.
 - Never assign `RecommendedTag` or `LatestResolvedVersion` from a candidate older than `CurrentVersion`. If `CurrentVersion` does not parse, a tag-list scan must not produce a recommendation (digest-resolved candidates are exempt — they point at the running digest).
-- `using_floating_tag` = `isMetaTag(checkTag)`: `latest`, `latest-*`, `stable`, `main`, `master`, `develop`, `dev`, `edge`, `nightly`, `beta`, `alpha`, `rc`.
+- `using_floating_tag` = the parser's own classification: `imgInfo.Tag.IsLatest || imgInfo.Tag.MetaTag != ""` (covers `latest`, `latest-*`, `stable`, `main`, `master`, `develop`, `dev`, `edge`, `nightly`, `beta`, `alpha`, `rc`, and is correct for unqualified image refs).
 - Counts never mix: `UPDATE_AVAILABLE` and `UPDATE_AVAILABLE_BLOCKED` are **Updates**; `UP_TO_DATE_PINNABLE` is **Pinnable**. `isUpdatable` stays true for both because both are actionable; counts and filters use the new split helpers.
 - Do not change pin-label semantics. Pin labels remain inert on floating tags, and the UI says so.
 - Commit after every task. Start from a feature branch off `main`.
@@ -295,7 +295,7 @@ UsingFloatingTag  bool                `json:"using_floating_tag"` // True for la
 In `checkContainer`, immediately after the `checkTag` block and before `update.CurrentSuffix = currentSuffix`:
 
 ```go
-update.UsingFloatingTag = isMetaTag(checkTag)
+update.UsingFloatingTag = imgInfo.Tag != nil && (imgInfo.Tag.IsLatest || imgInfo.Tag.MetaTag != "")
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
