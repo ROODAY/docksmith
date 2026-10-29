@@ -15,6 +15,7 @@ import { getContainerStatus } from './api/client'
 import { useEventStream, EventStreamProvider } from './context/EventStreamContext'
 import { STORAGE_KEY_TAB, ACTIVE_OPERATION_KEY } from './utils/constants'
 import { getPageTitle } from './operation/utils'
+import { isVersionUpdate, isPinnable } from './utils/status'
 // CSS is now imported via index.css
 
 interface ActiveOperation {
@@ -57,6 +58,7 @@ function AppContent() {
     return (saved as TabId) || 'containers';
   });
   const [updateCount, setUpdateCount] = useState(0);
+  const [pinnableCount, setPinnableCount] = useState(0);
   const { lastEvent, containerUpdated, reconnecting } = useEventStream();
 
   // Active operation banner state
@@ -104,24 +106,23 @@ function AppContent() {
     try {
       const result = await getContainerStatus();
       if (result.success && result.data) {
-        const pinnableCount = result.data.containers.filter(
-          c => c.status === 'UP_TO_DATE_PINNABLE'
-        ).length;
-        let count = result.data.updates_found + pinnableCount;
+        const containers = result.data.containers;
+        let updates = containers.filter(c => isVersionUpdate(c.status)).length;
+        let pinnable = containers.filter(c => isPinnable(c.status)).length;
 
-        // Subtract standalone container updates if hidden in view settings
+        // Subtract standalone container entries if hidden in view settings
         try {
           const saved = localStorage.getItem('containers_view_settings');
           const viewSettings = saved ? JSON.parse(saved) : null;
           if (viewSettings && !viewSettings.showStandalone) {
-            const standaloneUpdates = (result.data.standalone_containers || []).filter(
-              c => c.status === 'UPDATE_AVAILABLE' || c.status === 'UP_TO_DATE_PINNABLE'
-            ).length;
-            count -= standaloneUpdates;
+            const standalone = result.data.standalone_containers || [];
+            updates -= standalone.filter(c => isVersionUpdate(c.status)).length;
+            pinnable -= standalone.filter(c => isPinnable(c.status)).length;
           }
         } catch { /* ignore parse errors */ }
 
-        setUpdateCount(Math.max(0, count));
+        setUpdateCount(Math.max(0, updates));
+        setPinnableCount(Math.max(0, pinnable));
       }
     } catch {
       // Silently fail - badge will show 0
@@ -251,6 +252,7 @@ function AppContent() {
           activeTab={activeTab}
           onTabChange={setActiveTab}
           updateCount={updateCount}
+          pinnableCount={pinnableCount}
         />
       )}
     </div>
