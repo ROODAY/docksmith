@@ -783,9 +783,12 @@ In the filter toolbar, compute `updatesCount` and `pinnableCount` from `containe
 <button className={viewSettings.filter === 'pinnable' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'pinnable' })}>Pinnable ({pinnableCount})</button>
 ```
 
-- [ ] **Step 4: Add the pinnable empty state**
+- [ ] **Step 4: Add the pinnable empty state and clarify the updates one**
 
-Where the `updates` empty state returns "All containers are up to date", add a `pinnable` branch: heading "No floating tags", subtext "Every container is pinned to a version tag."
+Where the `updates` empty state returns "All containers are up to date", change the heading to
+"No version updates available"; when `pinnableCount > 0`, add a line "N container(s) are on
+floating tags — see Pinnable." Add a `pinnable` branch: heading "No floating tags", subtext
+"Every container is pinned to a version tag."
 
 - [ ] **Step 5: Split the selection analysis**
 
