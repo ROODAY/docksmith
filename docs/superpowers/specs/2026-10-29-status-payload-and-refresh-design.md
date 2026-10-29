@@ -96,8 +96,10 @@ a locally-opened email). Out of scope.
 6. **Honour `{triggered}`.** `runRefresh` calls `triggerCheck(force)`. If `triggered` is
    false, it skips the status poll and refetches immediately; if true, it polls `/api/status`
    every 1 s (was 300 ms) up to 15 s, then refetches explorer + status. Automatic
-   (60 s / focus / visibility) refreshes pass `force=false`; pull-to-refresh and Settings →
+   (65 s tick / focus / visibility) refreshes pass `force=false`; pull-to-refresh and Settings →
    Background Refresh pass `force=true`; pull ≥120 / Cache Refresh keep using `/api/check`.
+   The periodic tick is 65 s rather than 60 s because the server's floor counts from check
+   completion, so a 60 s tick is deduped every other run.
 7. **Refresh indicator.** In the Containers header: spinner + "Checking…" when
    `statusData.checking`; otherwise "Checked {relative}" from `last_background_run`, refreshed
    every 30 s, next to a refresh icon button that forces a background refresh. This is the

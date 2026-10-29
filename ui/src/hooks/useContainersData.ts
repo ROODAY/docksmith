@@ -172,9 +172,11 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
 
   // Background refresh — trigger background check, wait for it to complete, then fetch cached data.
   // Polls /api/status only when the server actually started a check (triggered), until
-  // checking=false and lastBackgroundRun advances past the trigger time, so the UI reflects
-  // the post-trigger cache rather than the pre-trigger one. A deduped trigger skips the
-  // poll loop entirely and costs just the single explorer/status refetch.
+  // checking=false and lastBackgroundRun moves off the pre-trigger baseline, so the UI
+  // reflects the post-trigger cache rather than the pre-trigger one. The baseline comes from
+  // the trigger response because last_background_run has second granularity and cannot be
+  // compared reliably against a millisecond client clock. A deduped trigger skips the poll
+  // loop entirely and costs just the single explorer/status refetch.
   const runRefresh = useCallback(async (force: boolean) => {
     try {
       const triggerAt = Date.now();
@@ -183,10 +185,12 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
         console.warn('Background check trigger failed:', triggerRes.error);
       }
       const triggered = triggerRes.success && triggerRes.data?.triggered === true;
+      const baselineRun = triggerRes.data?.last_background_run ?? '';
       // Surface an in-flight check as soon as this run starts one, so the header can
       // show "Checking…" without waiting for the next /api/status refetch.
       if (triggered && mountedRef.current) setRefreshing(true);
 
+      // triggerAt bounds the poll window only.
       const pollDeadline = triggerAt + 15000;
       let finalStatus: DiscoveryResult | null = null;
       // No check was started if the trigger failed or was deduped, so skip the poll loop.
@@ -196,8 +200,8 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
         const statusRes = await getContainerStatus(5000);
         if (!statusRes.success || !statusRes.data) continue;
         const data = statusRes.data;
-        const lastRunMs = data.last_background_run ? Date.parse(data.last_background_run) : 0;
-        if (!data.checking && lastRunMs >= triggerAt) {
+        const currentRun = data.last_background_run ?? '';
+        if (!data.checking && currentRun !== baselineRun) {
           finalStatus = data;
           break;
         }
@@ -309,8 +313,10 @@ export function useContainersData(options: { includeVolumeSizes?: boolean } = {}
     fetchData();
   }, [includeVolumeSizes, fetchData]);
 
-  // Periodic background refresh (every 60 seconds)
-  usePeriodicRefresh(backgroundRefresh, 60000, true, () => loading);
+  // Periodic background refresh, ~1 min. The server's 60 s floor counts from check
+  // completion, so a 60 s tick is deduped every other run; 65 s keeps a roughly
+  // one-minute cadence while still honouring "at most one check per 60 s".
+  usePeriodicRefresh(backgroundRefresh, 65000, true, () => loading);
 
   // Refresh on visibility/focus changes
   useEffect(() => {
