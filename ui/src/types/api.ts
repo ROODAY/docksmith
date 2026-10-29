@@ -28,6 +28,7 @@ export interface ContainerInfo {
   is_local: boolean;
   recommended_tag?: string;
   using_latest_tag: boolean;
+  using_floating_tag?: boolean;
   pre_update_check?: string;
   pre_update_check_fail?: string;
   pre_update_check_pass: boolean;
@@ -452,6 +453,7 @@ export interface UnifiedContainerItem {
   update_status?: string;
   recommended_tag?: string;
   using_latest_tag?: boolean;
+  using_floating_tag?: boolean;
   env_controlled?: boolean;
   env_var_name?: string;
   compose_image?: string;

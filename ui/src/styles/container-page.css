@@ -123,6 +123,17 @@
 .container-page .docksmith-badge.metadata { background: var(--color-slate-dim); color: var(--color-slate); }
 .container-page .docksmith-badge.mismatch { background: var(--color-warning-dim); color: var(--color-warning); }
 .container-page .docksmith-badge.unknown { background: var(--color-badge-ignored-dim); color: var(--color-badge-ignored); }
+.container-page .docksmith-badge.floating { background: var(--color-warning-dim); color: var(--color-warning); }
+.container-page .pin-inert-warning {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
+  font-size: 0.85rem;
+}
 
 .container-page .change-badge {
   display: inline-flex;

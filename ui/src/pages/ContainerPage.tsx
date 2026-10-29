@@ -10,6 +10,7 @@ import {
 import type { ContainerInspect, ContainerInfo } from '../types/api';
 import { ChangeType, getChangeTypeName } from '../types/api';
 import { getRegistryUrl } from '../utils/registry';
+import { isUpdatable } from '../utils/status';
 import { useToast } from '../components/Toast';
 import { Tooltip } from '../components/shared';
 import { ansiToHtml } from '../utils/ansi';
@@ -504,6 +505,17 @@ export function ContainerPage() {
   // Status badge helpers
   const getStatusBadge = () => {
     if (!docksmithData) return null;
+    const allowLatest = docksmithData.labels?.['docksmith.allow-latest'] === 'true';
+    if (
+      docksmithData.using_floating_tag &&
+      !allowLatest &&
+      docksmithData.status !== 'IGNORED' &&
+      !isUpdatable(docksmithData.status) &&
+      docksmithData.status !== 'COMPOSE_MISMATCH' &&
+      docksmithData.status !== 'LOCAL_IMAGE'
+    ) {
+      return <span className="docksmith-badge floating" title="Floating tag — no exact version tag could be resolved">Floating Tag</span>;
+    }
     switch (docksmithData.status) {
       case 'UPDATE_AVAILABLE':
         return <span className="docksmith-badge update">Update Available</span>;
@@ -1230,6 +1242,12 @@ export function ContainerPage() {
                   ))}
                 </div>
               </div>
+              {versionPin !== 'none' && docksmithData?.using_floating_tag && (
+                <div className="pin-inert-warning">
+                  <i className="fa-solid fa-triangle-exclamation"></i>
+                  <span>This version pin has no effect while the image uses a floating tag. Migrate to a version tag first.</span>
+                </div>
+              )}
               {activeHelp === 'versionPin' && (
                 <div className="help-tooltip">
                   <strong>{helpContent.versionPin.title}</strong>

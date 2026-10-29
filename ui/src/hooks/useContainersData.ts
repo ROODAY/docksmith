@@ -80,6 +80,7 @@ function mergeContainerData(
       update_status: status?.status,
       recommended_tag: status?.recommended_tag,
       using_latest_tag: status?.using_latest_tag,
+      using_floating_tag: status?.using_floating_tag,
       env_controlled: status?.env_controlled,
       env_var_name: status?.env_var_name,
       compose_image: status?.compose_image,

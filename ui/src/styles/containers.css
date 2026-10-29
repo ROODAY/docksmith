@@ -157,6 +157,8 @@
 .containers-page .status-badge.local { background: var(--color-slate-dim); color: var(--color-slate); }
 .containers-page .status-badge.ignored { background: var(--color-bg-tertiary); color: var(--color-text-tertiary); }
 .containers-page .status-badge.stopped { background: var(--color-slate-dim); color: var(--color-slate); }
+.containers-page .status-badge.floating { background: var(--color-warning-dim); color: var(--color-warning); }
+.label-icon.pin-warning { color: var(--color-warning); }
 
 /* Show full stack button (search context) */
 .show-full-stack-btn {

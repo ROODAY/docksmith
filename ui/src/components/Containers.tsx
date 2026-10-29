@@ -762,6 +762,21 @@ export function Containers() {
       if (c.state !== 'running') return <span className="status-badge stopped">{c.state.toUpperCase()}</span>;
       return null;
     }
+    const allowLatest = c.labels?.['docksmith.allow-latest'] === 'true';
+    if (
+      c.using_floating_tag &&
+      !allowLatest &&
+      c.update_status !== 'IGNORED' &&
+      c.update_status !== 'LOCAL_IMAGE' &&
+      c.update_status !== 'COMPOSE_MISMATCH' &&
+      !isUpdatable(c.update_status || '')
+    ) {
+      return (
+        <span className="status-badge floating" title={`Floating tag ${c.current_tag || ''} — no exact version tag could be resolved`}>
+          FLOATING
+        </span>
+      );
+    }
     switch (c.update_status) {
       case 'UPDATE_AVAILABLE':
         if (c.change_type === ChangeType.MajorChange) return <span className="status-badge major" title="Major update">MAJOR</span>;
@@ -841,6 +856,11 @@ export function Containers() {
           {c.health_status === 'unhealthy' && <span className="warn" title="Container is unhealthy"><i className="fa-solid fa-heart-crack"></i></span>}
           {c.env_controlled && <span className="label-icon env" title={`Image from .env: $${c.env_var_name || 'ENV'}`}><i className="fa-solid fa-file-code"></i></span>}
           {versionPin && <span className={`label-icon pin-${versionPin}`} title={`Version pinned to ${versionPin}`}><i className="fa-solid fa-thumbtack"></i></span>}
+          {versionPin && c.using_floating_tag && (
+            <span className="label-icon pin-warning" title="Version pin has no effect while running a floating tag — migrate to a version tag first">
+              <i className="fa-solid fa-triangle-exclamation"></i>
+            </span>
+          )}
           {hasTagRegex && <span className="label-icon regex" title="Tag regex filter"><i className="fa-solid fa-filter"></i></span>}
           {hasPreUpdateScript && !c.pre_update_check_pass && !c.pre_update_check_fail && <span className="label-icon script" title="Pre-update script"><i className="fa-solid fa-terminal"></i></span>}
           {allowsLatest && <span className="label-icon latest" title="Allows :latest"><i className="fa-solid fa-tag"></i></span>}
