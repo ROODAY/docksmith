@@ -17,7 +17,7 @@ services:
       # Required: Database persistence
       - ./data:/data
 
-      # Optional: Registry credentials for private images
+      # Optional: Registry credentials for private images and reliable LinuxServer/lscr.io tag resolution
       # Uncomment if you have private images on Docker Hub or GHCR
       # - ~/.docker/config.json:/root/.docker/config.json:ro
 

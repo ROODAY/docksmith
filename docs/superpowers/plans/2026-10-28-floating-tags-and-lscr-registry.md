@@ -775,9 +775,10 @@ if (viewSettings.filter === 'pinnable') {
 
 - [ ] **Step 3: Add the filter button and counts**
 
-In the filter toolbar, compute `updatesCount` as the number matching the updates predicate
-(version updates plus mismatches when `showMismatch` is on) and `pinnableCount` as `isPinnable`;
-these labels must match what each filter shows. Render:
+In the filter toolbar, compute `updatesCount` as the number of version updates only
+(`isVersionUpdate`), matching the sidebar; the filter may also show mismatches when
+`showMismatch` is on, and the button tooltip says so. Compute `pinnableCount` as `isPinnable`.
+Render:
 
 ```tsx
 <button className={viewSettings.filter === 'all' ? 'active' : ''} onClick={() => updateViewSettings({ filter: 'all' })}>All</button>
