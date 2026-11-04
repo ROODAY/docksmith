@@ -8,8 +8,6 @@
 
 **Tech Stack:** Go 1.x (stdlib, `testify`, `golang.org/x/sync`), React 19 + TypeScript + Vite.
 
-**Spec:** `docs/handoffs/2026-10-28-ui-resilience-and-netns-ordering.md`
-
 ## Global Constraints
 
 - One branch: `feat/ui-resilience-netns-ordering`. One commit per task, message prefixes as written below.

@@ -184,8 +184,6 @@ were removed, the checker could recommend the newest tag it can see — an ancie
 - Migration itself stays the existing operation: `target_version = recommended_tag`, compose
   `image:` rewritten to `repo:tag`, container recreated. After migration the pin labels become
   effective and future updates follow `version-pin-*`.
-- Reference: `docs/handoffs/2026-10-28-ui-resilience-and-netns-ordering.md` item 6 already calls
-  out the "Pin"/"Pinnable"/"Update" naming collision; this design implements its fix direction.
 
 ## Files expected to change
 

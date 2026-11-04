@@ -3,7 +3,6 @@
 Status: draft for review
 Date: 2026-10-28
 Repo: `docksmith`, branch `main`
-Input: `docs/handoffs/2026-10-28-followups.md`
 
 ## Intent
 
