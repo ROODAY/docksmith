@@ -188,6 +188,10 @@ Response:
 
 Discovers containers and checks for updates. Clears registry cache.
 
+The full response keeps the `stacks` map, but because the field uses
+`omitempty`, an instance with no compose stacks omits the `stacks` key
+entirely (an empty map is never sent).
+
 ```bash
 curl http://localhost:8080/api/check
 ```
