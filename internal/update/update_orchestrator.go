@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -343,6 +344,14 @@ func (o *UpdateOrchestrator) updateBatchContainersInternal(ctx context.Context, 
 		}
 	}
 
+	// Services that inherit the same image anchor ship in lockstep: pull the rest
+	// of the anchor's services into the batch so the stack never splits tags.
+	allContainers := make([]*docker.Container, len(containers))
+	for i := range containers {
+		allContainers[i] = &containers[i]
+	}
+	orderedContainers, targetVersions = o.expandLockstepContainers(ctx, orderedContainers, allContainers, targetVersions)
+
 	stackName := ""
 	if len(orderedContainers) > 0 {
 		stackName = o.stackManager.DetermineStack(ctx, *orderedContainers[0])
@@ -428,10 +437,14 @@ func (o *UpdateOrchestrator) updateBatchContainersInternal(ctx context.Context, 
 		if err := o.storage.SaveUpdateOperation(ctx, op); err != nil {
 			return "", fmt.Errorf("failed to save queued operation: %w", err)
 		}
+		queuedNames := make([]string, 0, len(orderedContainers))
+		for _, c := range orderedContainers {
+			queuedNames = append(queuedNames, c.Name)
+		}
 		queue := storage.UpdateQueue{
 			OperationID:    operationID,
 			StackName:      stackName,
-			Containers:     containerNames,
+			Containers:     queuedNames,
 			OperationType:  operationType,
 			TargetVersions: targetVersions,
 			QueuedAt:       time.Now(),
@@ -451,6 +464,97 @@ func (o *UpdateOrchestrator) updateBatchContainersInternal(ctx context.Context, 
 	go o.executeBatchUpdate(context.Background(), operationID, orderedContainers, targetVersions, stackName, forceContainers)
 
 	return operationID, nil
+}
+
+// expandLockstepContainers adds containers whose compose service inherits its
+// image from the same YAML anchor as a service already in the batch. Such
+// services ship in lockstep — updating one without the other leaves the stack
+// on two different images — so they are pulled into the batch with the same
+// target version.
+func (o *UpdateOrchestrator) expandLockstepContainers(ctx context.Context, batch []*docker.Container, allContainers []*docker.Container, targetVersions map[string]string) ([]*docker.Container, map[string]string) {
+	if len(batch) == 0 {
+		return batch, targetVersions
+	}
+	inBatch := make(map[string]bool, len(batch))
+	for _, c := range batch {
+		inBatch[c.Name] = true
+	}
+
+	expanded := make([]*docker.Container, len(batch))
+	copy(expanded, batch)
+
+	for _, container := range batch {
+		serviceName := container.Labels["com.docker.compose.service"]
+		if serviceName == "" {
+			continue
+		}
+		composeFilePath := o.getComposeFilePath(container)
+		if composeFilePath == "" {
+			continue
+		}
+		resolvedPath, err := o.resolveComposeFile(composeFilePath)
+		if err != nil {
+			continue
+		}
+		cf, err := compose.LoadComposeFileOrIncluded(resolvedPath, serviceName)
+		if err != nil {
+			continue
+		}
+		svc, err := cf.FindServiceByContainerName(serviceName)
+		if err != nil {
+			continue
+		}
+
+		sharing := cf.ServicesSharingImage(svc)
+		if len(sharing) <= 1 {
+			continue
+		}
+
+		target := targetVersions[container.Name]
+		projectFiles := container.Labels["com.docker.compose.project.config_files"]
+
+		for _, candidate := range allContainers {
+			if inBatch[candidate.Name] {
+				continue
+			}
+			if candidate.Labels["com.docker.compose.project.config_files"] != projectFiles {
+				continue
+			}
+			candidateService := candidate.Labels["com.docker.compose.service"]
+			if !slices.Contains(sharing, candidateService) {
+				continue
+			}
+
+			// Verify the candidate's service lives in the same compose file:
+			// anchors cannot cross files, and a project may include several.
+			candidatePath, err := o.resolveComposeFile(o.getComposeFilePath(candidate))
+			if err != nil {
+				continue
+			}
+			candidateCf, err := compose.LoadComposeFileOrIncluded(candidatePath, candidateService)
+			if err != nil || candidateCf.Path != cf.Path {
+				continue
+			}
+
+			// A nil map means "every listed container is in the batch". Expand it
+			// with an entry per existing container so executeBatchUpdate's filter
+			// keeps them all.
+			if targetVersions == nil {
+				targetVersions = make(map[string]string, len(expanded)+1)
+				for _, c := range expanded {
+					targetVersions[c.Name] = ""
+				}
+			}
+			inBatch[candidate.Name] = true
+			expanded = append(expanded, candidate)
+			if _, ok := targetVersions[candidate.Name]; !ok {
+				targetVersions[candidate.Name] = target
+			}
+			log.Printf("BATCH UPDATE: Including %s — it shares an image anchor with %s and must update in lockstep", candidate.Name, container.Name)
+		}
+	}
+
+	return expanded, targetVersions
 }
 
 // UpdateStack initiates an update for all containers in a stack.
@@ -1046,6 +1150,42 @@ func networkModeTargetMatches(target string, c *docker.Container) bool {
 	return c.ID == target || strings.HasPrefix(c.ID, target) || strings.HasPrefix(target, c.ID)
 }
 
+// updateBatchComposeFiles rewrites the image tag in each container's compose file.
+//
+// A failure for one container (unresolvable file, missing service, or a service
+// with no literal image field) is recorded against that container's batch detail
+// and returned in the failed set; the remaining containers are still updated, so
+// one bad service cannot abort the whole batch. Containers without a compose file
+// are skipped — they are recreated through the Docker SDK instead.
+func (o *UpdateOrchestrator) updateBatchComposeFiles(ctx context.Context, operationID, stackName string, containers []*docker.Container, targetVersions map[string]string) map[string]bool {
+	failed := make(map[string]bool)
+	if len(containers) == 0 {
+		return failed
+	}
+
+	for i, container := range containers {
+		progress := 10 + (i * 20 / len(containers))
+		o.publishProgress(operationID, container.Name, stackName, "updating_compose", progress, fmt.Sprintf("Updating compose for %s", container.Name))
+
+		composeFilePath := o.getComposeFilePath(container)
+		if composeFilePath == "" {
+			continue
+		}
+
+		resolvedPath, err := o.resolveComposeFile(composeFilePath)
+		if err == nil {
+			err = o.updateComposeFile(ctx, resolvedPath, container, targetVersions[container.Name])
+		}
+		if err != nil {
+			log.Printf("BATCH UPDATE: Failed to update compose for %s: %v", container.Name, err)
+			failed[container.Name] = true
+			o.updateBatchDetailStatus(ctx, operationID, container.Name, "failed", fmt.Sprintf("Failed to update compose for %s: %v", container.Name, err))
+		}
+	}
+
+	return failed
+}
+
 // executeBatchUpdate executes batch update workflow.
 func (o *UpdateOrchestrator) executeBatchUpdate(ctx context.Context, operationID string, containers []*docker.Container, targetVersions map[string]string, stackName string, forceContainers map[string]bool) {
 	defer o.releaseStackLock(stackName)
@@ -1117,26 +1257,10 @@ func (o *UpdateOrchestrator) executeBatchUpdate(ctx context.Context, operationID
 	// Phase 1: Update all compose files first (10-30%)
 	o.publishProgress(operationID, "", stackName, "updating_compose", 10, fmt.Sprintf("Updating %d compose files", len(updateContainers)))
 
-	for i, container := range updateContainers {
-		progress := 10 + (i * 20 / len(updateContainers))
-		o.publishProgress(operationID, container.Name, stackName, "updating_compose", progress, fmt.Sprintf("Updating compose for %s", container.Name))
-
-		// Update compose file with new version
-		targetVersion := targetVersions[container.Name]
-		composeFilePath := o.getComposeFilePath(container)
-		if composeFilePath != "" {
-			resolvedPath, err := o.resolveComposeFile(composeFilePath)
-			if err != nil {
-				o.failOperation(ctx, operationID, "updating_compose", fmt.Sprintf("Failed to resolve compose for %s: %v", container.Name, err))
-				return
-			}
-
-			if err := o.updateComposeFile(ctx, resolvedPath, container, targetVersion); err != nil {
-				o.failOperation(ctx, operationID, "updating_compose", fmt.Sprintf("Failed to update compose for %s: %v", container.Name, err))
-				return
-			}
-		}
-	}
+	// Compose-edit failures are per-container: a service that cannot be rewritten
+	// (e.g. its image comes from a YAML merge key) is marked failed and skipped by
+	// the remaining phases, but the rest of the batch continues.
+	composeFailed := o.updateBatchComposeFiles(ctx, operationID, stackName, updateContainers, targetVersions)
 
 	// Phase 2: Pull all images (30-60%)
 	o.publishProgress(operationID, "", stackName, "pulling_image", 30, fmt.Sprintf("Pulling %d images", len(updateContainers)))
@@ -1144,6 +1268,11 @@ func (o *UpdateOrchestrator) executeBatchUpdate(ctx context.Context, operationID
 	pullFailed := make(map[string]bool)
 
 	for i, container := range updateContainers {
+		if composeFailed[container.Name] {
+			log.Printf("BATCH UPDATE: Skipping pull for %s — compose update failed", container.Name)
+			continue
+		}
+
 		targetVersion := targetVersions[container.Name]
 		newImageRef := replaceImageTag(container.Image, targetVersion)
 
@@ -1231,10 +1360,20 @@ func (o *UpdateOrchestrator) executeBatchUpdate(ctx context.Context, operationID
 	// Recreate, health-check, and mark each container individually (60-95%)
 	// All phases merged into one per-container loop so the frontend gets continuous SSE events.
 	successCount := 0
-	failCount := 0
-	failedContainers := make(map[string]bool)
+	failCount := len(composeFailed)
+	failedContainers := make(map[string]bool, len(composeFailed))
+	for name := range composeFailed {
+		failedContainers[name] = true
+	}
 
 	for i, cont := range orderedContainers {
+		// Skip containers whose compose file could not be updated — they are
+		// already marked failed and were never pulled.
+		if failedContainers[cont.Name] {
+			log.Printf("BATCH UPDATE: Skipping recreation of %s — compose update failed", cont.Name)
+			continue
+		}
+
 		// Skip containers whose image pull failed — they are already marked failed
 		if pullFailed[cont.Name] {
 			failCount++
@@ -1320,6 +1459,12 @@ func (o *UpdateOrchestrator) executeBatchUpdate(ctx context.Context, operationID
 	var allBlocked []string
 
 	for _, cont := range orderedContainers {
+		// Don't restart dependents of a container that failed: it was left
+		// running on its old image, so there is nothing new to pick up.
+		if failedContainers[cont.Name] {
+			continue
+		}
+
 		// Restart dependents for this container
 		depResult, depErr := o.restartDependentContainers(ctx, cont.Name, false)
 		if depErr != nil {
@@ -1494,58 +1639,49 @@ func (o *UpdateOrchestrator) updateComposeFile(ctx context.Context, composeFileP
 		return fmt.Errorf("service node is not a mapping")
 	}
 
-	// Find and update the image field
-	imageUpdated := false
-	for i := 0; i < len(service.Node.Content); i += 2 {
-		keyNode := service.Node.Content[i]
-		valueNode := service.Node.Content[i+1]
-
-		if keyNode.Value == "image" {
-			currentImage := valueNode.Value
-
-			// Handle env var image specs (e.g., ${OPENCLAW_IMAGE:-openclaw:latest})
-			if compose.ContainsEnvVar(currentImage) {
-				updated, ok := compose.ReplaceTagInEnvVar(currentImage, newTag)
-				if !ok {
-					log.Printf("UPDATE: Cannot update env var image for %s (no default value): %s", serviceName, currentImage)
-					return nil
-				}
-				log.Printf("UPDATE: Updating env var image for %s: %s -> %s", serviceName, currentImage, updated)
-				valueNode.Value = updated
-				imageUpdated = true
-
-				// Also update the .env file if the variable is defined there
-				envVarName := compose.ExtractEnvVarName(currentImage)
-				if envVarName != "" {
-					composeDir := filepath.Dir(composeFile.Path)
-					envVars := compose.LoadDotEnv(composeDir)
-					if _, exists := envVars[envVarName]; exists {
-						if err := compose.UpdateDotEnvVar(composeDir, envVarName, newTag); err != nil {
-							log.Printf("UPDATE: Warning: failed to update .env file for %s: %v", envVarName, err)
-						} else {
-							log.Printf("UPDATE: Updated .env variable %s with new tag %s", envVarName, newTag)
-						}
-					}
-				}
-				break
-			}
-
-			// Parse current image and update tag
-			parts := strings.Split(currentImage, ":")
-			if len(parts) > 1 {
-				parts[len(parts)-1] = newTag
-			} else {
-				parts = append(parts, newTag)
-			}
-
-			valueNode.Value = strings.Join(parts, ":")
-			imageUpdated = true
-			break
-		}
-	}
-
-	if !imageUpdated {
+	// Find the image node, following YAML merge keys so a service that inherits
+	// its image from an anchor (`<<: *anchor`) is editable too. The anchor's node
+	// is rewritten, preserving the single source of truth for images that several
+	// services ship in lockstep.
+	imageNode := service.FindImageNode()
+	if imageNode == nil {
 		return fmt.Errorf("service %s has no image field", serviceName)
+	}
+	currentImage := imageNode.Value
+
+	// Handle env var image specs (e.g., ${OPENCLAW_IMAGE:-openclaw:latest})
+	if compose.ContainsEnvVar(currentImage) {
+		updated, ok := compose.ReplaceTagInEnvVar(currentImage, newTag)
+		if !ok {
+			log.Printf("UPDATE: Cannot update env var image for %s (no default value): %s", serviceName, currentImage)
+			return nil
+		}
+		log.Printf("UPDATE: Updating env var image for %s: %s -> %s", serviceName, currentImage, updated)
+		imageNode.Value = updated
+
+		// Also update the .env file if the variable is defined there
+		envVarName := compose.ExtractEnvVarName(currentImage)
+		if envVarName != "" {
+			composeDir := filepath.Dir(composeFile.Path)
+			envVars := compose.LoadDotEnv(composeDir)
+			if _, exists := envVars[envVarName]; exists {
+				if err := compose.UpdateDotEnvVar(composeDir, envVarName, newTag); err != nil {
+					log.Printf("UPDATE: Warning: failed to update .env file for %s: %v", envVarName, err)
+				} else {
+					log.Printf("UPDATE: Updated .env variable %s with new tag %s", envVarName, newTag)
+				}
+			}
+		}
+	} else {
+		// Parse current image and update tag
+		parts := strings.Split(currentImage, ":")
+		if len(parts) > 1 {
+			parts[len(parts)-1] = newTag
+		} else {
+			parts = append(parts, newTag)
+		}
+
+		imageNode.Value = strings.Join(parts, ":")
 	}
 
 	// Save the compose file (uses the actual file path from composeFile.Path)

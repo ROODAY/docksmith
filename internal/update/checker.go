@@ -223,16 +223,15 @@ func (c *Checker) checkComposeMismatch(container docker.Container) (bool, string
 		return false, ""
 	}
 
-	var imageSpec string
+	// Follows merge keys so services inheriting their image from an anchor are
+	// still compared against the running container.
+	imageSpec := compose.GetServiceImage(service)
+
 	var hasBuild bool
-	for i := 0; i < len(service.Node.Content); i += 2 {
-		keyNode := service.Node.Content[i]
-		if keyNode.Value == "image" && i+1 < len(service.Node.Content) {
-			valueNode := service.Node.Content[i+1]
-			imageSpec = valueNode.Value
-		}
-		if keyNode.Value == "build" {
+	for i := 0; i+1 < len(service.Node.Content); i += 2 {
+		if service.Node.Content[i].Value == "build" {
 			hasBuild = true
+			break
 		}
 	}
 
@@ -324,13 +323,9 @@ func (c *Checker) checkEnvControlled(container docker.Container, update *Contain
 		return
 	}
 
-	var imageSpec string
-	for i := 0; i < len(service.Node.Content); i += 2 {
-		if service.Node.Content[i].Value == "image" && i+1 < len(service.Node.Content) {
-			imageSpec = service.Node.Content[i+1].Value
-			break
-		}
-	}
+	// Follows merge keys so env-controlled images inherited from an anchor are
+	// still detected.
+	imageSpec := compose.GetServiceImage(service)
 
 	if !compose.ContainsEnvVar(imageSpec) {
 		return

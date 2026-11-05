@@ -80,17 +80,95 @@ func (cf *ComposeFile) FindServiceByContainerName(containerName string) (*Servic
 	return nil, fmt.Errorf("service not found for container: %s", containerName)
 }
 
-// GetServiceImage extracts the image value from a Service's YAML node.
+// GetServiceImage extracts the image value for a Service, following YAML
+// merge keys (`<<: *anchor` and `<<: [*a, *b]`). Returns "" when no image is
+// defined directly or through a merge.
 func GetServiceImage(svc *Service) string {
-	if svc.Node == nil || svc.Node.Kind != yaml.MappingNode {
-		return ""
-	}
-	for i := 0; i < len(svc.Node.Content)-1; i += 2 {
-		if svc.Node.Content[i].Value == "image" {
-			return svc.Node.Content[i+1].Value
-		}
+	if img := svc.FindImageNode(); img != nil {
+		return img.Value
 	}
 	return ""
+}
+
+// FindImageNode returns the YAML node that owns the image value for the
+// service: the service's own `image` key when present, otherwise the node
+// reached through its merge keys. Writing to the returned node updates the
+// image for this service and every other service sharing the same anchor.
+func (s *Service) FindImageNode() *yaml.Node {
+	return findImageValueNode(s.Node, make(map[*yaml.Node]bool))
+}
+
+// ServicesSharingImage returns the names of services whose image resolves to
+// the same YAML node as svc's — that is, services that inherit their image from
+// the same anchor and therefore have to be updated together. The result always
+// includes svc. Services that merely use the same literal image string are not
+// included: they have independent image nodes.
+func (cf *ComposeFile) ServicesSharingImage(svc *Service) []string {
+	if svc == nil || cf.Services == nil || cf.Services.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	imageNode := svc.FindImageNode()
+	if imageNode == nil {
+		return []string{svc.Name}
+	}
+
+	sharing := make([]string, 0, 2)
+	for i := 0; i+1 < len(cf.Services.Content); i += 2 {
+		serviceNameNode := cf.Services.Content[i]
+		serviceDefNode := cf.Services.Content[i+1]
+
+		candidate := &Service{Name: serviceNameNode.Value, Node: serviceDefNode}
+		if candidate.FindImageNode() == imageNode {
+			sharing = append(sharing, candidate.Name)
+		}
+	}
+
+	return sharing
+}
+
+// findImageValueNode resolves the image value node of a service mapping.
+// Explicit keys take precedence over merged ones; for a sequence of merges the
+// first mapping that defines an image wins, matching YAML merge semantics.
+func findImageValueNode(node *yaml.Node, visited map[*yaml.Node]bool) *yaml.Node {
+	if node == nil || visited[node] {
+		return nil
+	}
+	visited[node] = true
+
+	if node.Kind == yaml.AliasNode {
+		return findImageValueNode(node.Alias, visited)
+	}
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "image" {
+			return node.Content[i+1]
+		}
+	}
+
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value != "<<" {
+			continue
+		}
+
+		mergeValue := node.Content[i+1]
+		if mergeValue.Kind == yaml.SequenceNode {
+			for _, item := range mergeValue.Content {
+				if img := findImageValueNode(item, visited); img != nil {
+					return img
+				}
+			}
+			continue
+		}
+		if img := findImageValueNode(mergeValue, visited); img != nil {
+			return img
+		}
+	}
+
+	return nil
 }
 
 // getContainerName extracts the container_name value from a service definition node.
