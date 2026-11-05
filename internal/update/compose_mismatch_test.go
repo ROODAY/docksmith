@@ -291,6 +291,90 @@ services:
 		assert.Equal(t, "nginx:1.26", expectedImage)
 	})
 
+	t.Run("digest-pinned compose image matches running image with same digest", func(t *testing.T) {
+		// Compose pins an exact digest (common for database images). The running
+		// container records the same digest, so this is not a mismatch.
+		tmpDir := t.TempDir()
+		composePath := filepath.Join(tmpDir, "docker-compose.yaml")
+		composeContent := `
+services:
+  db:
+    container_name: db
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+`
+		err := os.WriteFile(composePath, []byte(composeContent), 0644)
+		require.NoError(t, err)
+
+		container := docker.Container{
+			ID:    "abc123",
+			Name:  "db",
+			Image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23",
+			Labels: map[string]string{
+				"com.docker.compose.project.config_files": composePath,
+			},
+		}
+
+		mismatch, expectedImage := checker.checkComposeMismatch(container)
+		assert.False(t, mismatch, "Digest-pinned compose image matching the running digest should not be mismatch")
+		assert.Empty(t, expectedImage)
+	})
+
+	t.Run("digest-pinned compose image matches running image without recorded digest", func(t *testing.T) {
+		// Some Docker versions report Config.Image without the digest suffix. The
+		// tag still matches the pinned reference, so this is not a mismatch.
+		tmpDir := t.TempDir()
+		composePath := filepath.Join(tmpDir, "docker-compose.yaml")
+		composeContent := `
+services:
+  db:
+    container_name: db
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+`
+		err := os.WriteFile(composePath, []byte(composeContent), 0644)
+		require.NoError(t, err)
+
+		container := docker.Container{
+			ID:    "abc123",
+			Name:  "db",
+			Image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0",
+			Labels: map[string]string{
+				"com.docker.compose.project.config_files": composePath,
+			},
+		}
+
+		mismatch, expectedImage := checker.checkComposeMismatch(container)
+		assert.False(t, mismatch, "Digest-pinned compose image matching the running tag should not be mismatch")
+		assert.Empty(t, expectedImage)
+	})
+
+	t.Run("digest-pinned compose image with different running digest is mismatch", func(t *testing.T) {
+		// Same tag but a different digest means the container is not running the
+		// image the compose file pins.
+		tmpDir := t.TempDir()
+		composePath := filepath.Join(tmpDir, "docker-compose.yaml")
+		composeContent := `
+services:
+  db:
+    container_name: db
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+`
+		err := os.WriteFile(composePath, []byte(composeContent), 0644)
+		require.NoError(t, err)
+
+		container := docker.Container{
+			ID:    "abc123",
+			Name:  "db",
+			Image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+			Labels: map[string]string{
+				"com.docker.compose.project.config_files": composePath,
+			},
+		}
+
+		mismatch, expectedImage := checker.checkComposeMismatch(container)
+		assert.True(t, mismatch, "Digest-pinned compose image with a different running digest should be mismatch")
+		assert.Equal(t, "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23", expectedImage)
+	})
+
 	// No mismatch cases
 
 	t.Run("no mismatch - exact same tag", func(t *testing.T) {

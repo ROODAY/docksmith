@@ -262,22 +262,24 @@ func (c *Checker) checkComposeMismatch(container docker.Container) (bool, string
 		return true, imageSpec
 	}
 
-	// Normalize both images for comparison (handle digest vs tag differences)
-	// The running container may have a full SHA while compose has a tag
-	runningImage := container.Image
-
-	// If running image contains @sha256:, extract the base image name
-	if strings.Contains(runningImage, "@sha256:") {
-		runningImage = strings.Split(runningImage, "@")[0]
+	// Normalize both images for comparison (handle digest vs tag differences).
+	// A digest pinned in the compose spec must still be honored: the same tag can
+	// point at different digests, so a different running digest is a real mismatch.
+	specDigest := imageDigest(imageSpec)
+	runningDigest := imageDigest(container.Image)
+	if specDigest != "" && runningDigest != "" && runningDigest != specDigest {
+		log.Printf("Container %s: Image digest mismatch - running: %s, compose: %s", container.Name, container.Image, imageSpec)
+		return true, imageSpec
 	}
 
-	// If running image has no tag, it's using latest implicitly
+	// The running container may have a full SHA while compose has a tag.
+	runningImage := stripImageDigest(container.Image)
+	normalizedSpec := stripImageDigest(imageSpec)
+
+	// If an image has no tag, it's using latest implicitly
 	if !strings.Contains(runningImage, ":") {
 		runningImage += ":latest"
 	}
-
-	// Normalize compose spec too
-	normalizedSpec := imageSpec
 	if !strings.Contains(normalizedSpec, ":") {
 		normalizedSpec += ":latest"
 	}
@@ -289,6 +291,23 @@ func (c *Checker) checkComposeMismatch(container docker.Container) (bool, string
 	}
 
 	return false, ""
+}
+
+// imageDigest returns the digest portion of an image reference (the part after
+// "@"), or "" when the reference is not digest-pinned.
+func imageDigest(image string) string {
+	if _, digest, ok := strings.Cut(image, "@"); ok {
+		return digest
+	}
+	return ""
+}
+
+// stripImageDigest removes an "@sha256:..." suffix from an image reference.
+func stripImageDigest(image string) string {
+	if name, _, ok := strings.Cut(image, "@"); ok {
+		return name
+	}
+	return image
 }
 
 // checkEnvControlled checks if a container's image is controlled by a .env variable.
